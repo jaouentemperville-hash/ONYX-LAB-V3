@@ -220,6 +220,73 @@ Réponds strictement en JSON:
       return cors(NextResponse.json({ analysis: json || { raw }, raw }))
     }
 
+    // ==============================
+    // Estimate macros from meal description (Gemini)
+    // ==============================
+    if (route === '/nutrition/estimate' && method === 'POST') {
+      const body = await request.json().catch(() => ({}))
+      const { description = '' } = body
+      if (!description.trim()) return cors(NextResponse.json({ error: 'description required' }, { status: 400 }))
+
+      const system = `Tu es un diététicien du sport. Tu estimes les macronutriments d'un repas décrit en langage naturel.
+Sois RÉALISTE et prudent. Base-toi sur des portions standards en France.
+Réponds STRICTEMENT en JSON.`
+      const prompt = `Description du repas: "${description}"
+
+Réponds strictement en JSON:
+{
+  "name": "nom résumé du repas",
+  "portion": "portion estimée en g ou description",
+  "calories": 550,
+  "protein": 40,
+  "carbs": 60,
+  "fat": 15,
+  "note": "assomption faite pour l'estimation"
+}`
+      const raw = await chat({ system, prompt })
+      const json = extractJson(raw)
+      return cors(NextResponse.json({ estimate: json || { raw }, raw }))
+    }
+
+    // ==============================
+    // Weekly nutrition analysis (Gemini)
+    // ==============================
+    if (route === '/nutrition/analyze' && method === 'POST') {
+      const body = await request.json().catch(() => ({}))
+      const { meals = [], sport = 'MMA', goals = '' } = body
+      if (!meals.length) return cors(NextResponse.json({ error: 'meals required' }, { status: 400 }))
+
+      const system = `Tu es un diététicien du sport spécialisé en sports de combat (MMA, No-Gi).
+Tu analyses 7 jours d'alimentation d'un athlète et donnes un feedback pragmatique et actionnable.
+Réponds STRICTEMENT en JSON français.`
+      const totals = meals.reduce((acc, m) => ({
+        calories: acc.calories + (Number(m.calories) || 0),
+        protein: acc.protein + (Number(m.protein) || 0),
+        carbs: acc.carbs + (Number(m.carbs) || 0),
+        fat: acc.fat + (Number(m.fat) || 0),
+      }), { calories: 0, protein: 0, carbs: 0, fat: 0 })
+
+      const prompt = `SPORT: ${sport}
+OBJECTIFS: ${goals || 'performance combat + composition corporelle'}
+NOMBRE DE REPAS SUR LA PÉRIODE: ${meals.length}
+TOTAUX PÉRIODE: ${JSON.stringify(totals)}
+EXEMPLES DE REPAS: ${JSON.stringify(meals.slice(0, 15).map(m => ({ n: m.name, p: m.portion, k: m.calories, pr: m.protein })))}
+
+Réponds strictement en JSON:
+{
+  "score_qualite": 75,
+  "moyennes_quotidiennes": {"calories": 2400, "protein": 150, "carbs": 280, "fat": 80},
+  "verdict": "1-2 phrases synthèse",
+  "points_forts": ["..."],
+  "points_amelioration": ["..."],
+  "conseils_actions": ["..."],
+  "hydratation_rappel": "..."
+}`
+      const raw = await chat({ system, prompt })
+      const json = extractJson(raw)
+      return cors(NextResponse.json({ analysis: json || { raw }, raw }))
+    }
+
     return cors(NextResponse.json({ error: `Route ${route} not found` }, { status: 404 }))
   } catch (err) {
     console.error('API Error:', err)

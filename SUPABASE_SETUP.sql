@@ -135,3 +135,28 @@ drop trigger if exists on_auth_user_created on auth.users;
 create trigger on_auth_user_created
   after insert on auth.users
   for each row execute procedure public.handle_new_user();
+
+-- =====================================================================
+-- v3: Journal Nutrition
+-- =====================================================================
+create table if not exists public.meals (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references auth.users(id) on delete cascade,
+  date date not null default current_date,
+  meal_type text,
+  name text,
+  portion text,
+  calories numeric,
+  protein numeric,
+  carbs numeric,
+  fat numeric,
+  notes text,
+  created_at timestamptz not null default now()
+);
+create index if not exists meals_user_date_idx on public.meals(user_id, date desc);
+
+alter table public.meals enable row level security;
+create policy "meals_select_own" on public.meals for select to authenticated using ((select auth.uid()) = user_id);
+create policy "meals_insert_own" on public.meals for insert to authenticated with check ((select auth.uid()) = user_id);
+create policy "meals_update_own" on public.meals for update to authenticated using ((select auth.uid()) = user_id) with check ((select auth.uid()) = user_id);
+create policy "meals_delete_own" on public.meals for delete to authenticated using ((select auth.uid()) = user_id);

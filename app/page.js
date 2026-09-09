@@ -16,6 +16,7 @@ import {
   Activity, Flame, Mic, MicOff, Sparkles, Loader2, LogOut, Dumbbell,
   Link2, HeartPulse, Moon, Zap, ShieldAlert, ChevronRight, Play, Trash2, ClipboardList,
   Bell, BellRing, Image as ImageIcon, Volume2, VolumeX, History, TrendingUp, Upload,
+  Utensils, Apple, Plus, Gauge,
 } from 'lucide-react'
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts'
 
@@ -908,6 +909,228 @@ function ImageAnalysisView({ a, ctx }) {
   )
 }
 
+function computeFormScore(h) {
+  if (!h) return null
+  const parts = []
+  if (h.hrv != null) parts.push(Math.max(0, Math.min(100, ((Number(h.hrv) - 20) / 80) * 100)))
+  if (h.sleep_hours != null) {
+    const s = Number(h.sleep_hours)
+    parts.push(Math.max(0, Math.min(100, s >= 8 ? 100 : s >= 6 ? 60 + (s - 6) * 20 : s * 10)))
+  }
+  if (h.recovery_score != null) parts.push(Math.max(0, Math.min(100, Number(h.recovery_score))))
+  if (h.fatigue != null) parts.push(Math.max(0, Math.min(100, (10 - Number(h.fatigue)) * 10)))
+  if (!parts.length) return null
+  return Math.round(parts.reduce((a, b) => a + b, 0) / parts.length)
+}
+
+function FormScoreCard({ latestHealth }) {
+  const score = computeFormScore(latestHealth)
+  if (score == null) {
+    return (
+      <Card className="bg-neutral-900/60 border-neutral-800">
+        <CardContent className="py-6 text-center">
+          <Gauge className="h-8 w-8 text-neutral-600 mx-auto mb-2" />
+          <p className="text-xs text-neutral-500">Renseigne ta forme ci-dessous pour voir ton score du jour</p>
+        </CardContent>
+      </Card>
+    )
+  }
+  const color = score >= 70 ? 'from-green-500 to-emerald-500' : score >= 40 ? 'from-orange-500 to-yellow-500' : 'from-red-600 to-red-500'
+  const label = score >= 70 ? 'GO ⚡' : score >= 40 ? 'MODÉRÉ' : 'RÉCUP'
+  const advice = score >= 70 ? 'Tu peux pousser fort' : score >= 40 ? 'Séance à intensité contrôlée' : 'Récupération active recommandée'
+  return (
+    <Card className={`bg-gradient-to-br ${color} border-0 shadow-2xl`}>
+      <CardContent className="py-5 text-white">
+        <div className="flex items-center gap-4">
+          <div className="text-5xl font-black leading-none">{score}</div>
+          <div className="flex-1">
+            <div className="text-[10px] uppercase tracking-widest opacity-90">Score de forme</div>
+            <div className="text-2xl font-black">{label}</div>
+            <div className="text-xs opacity-95 mt-1">{advice}</div>
+          </div>
+          <Gauge className="h-10 w-10 opacity-90" />
+        </div>
+      </CardContent>
+    </Card>
+  )
+}
+
+const MEAL_TYPES = ['Petit-déj', 'Déjeuner', 'Dîner', 'Collation']
+
+function NutritionCard({ userId }) {
+  const supabase = getSupabaseBrowser()
+  const [desc, setDesc] = useState('')
+  const [mealType, setMealType] = useState('Déjeuner')
+  const [loading, setLoading] = useState(false)
+  const [todayMeals, setTodayMeals] = useState([])
+
+  async function refresh() {
+    const today = new Date().toISOString().slice(0, 10)
+    const { data } = await supabase.from('meals').select('*').eq('user_id', userId).eq('date', today).order('created_at', { ascending: true })
+    setTodayMeals(data || [])
+  }
+  useEffect(() => { refresh() }, [userId]) // eslint-disable-line
+
+  async function addMeal() {
+    if (!desc.trim()) return toast.error('Décris ton repas')
+    setLoading(true)
+    try {
+      const res = await fetch('/api/nutrition/estimate', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ description: desc }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.detail || data.error)
+      const est = data.estimate || {}
+      const payload = {
+        user_id: userId, date: new Date().toISOString().slice(0, 10), meal_type: mealType,
+        name: est.name || desc.slice(0, 40), portion: est.portion || '',
+        calories: est.calories, protein: est.protein, carbs: est.carbs, fat: est.fat,
+      }
+      const { error } = await supabase.from('meals').insert(payload)
+      if (error) throw error
+      toast.success(`+${est.calories || 0} kcal · ${est.protein || 0}g prot`)
+      setDesc('')
+      refresh()
+    } catch (err) {
+      toast.error(err.message)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  async function del(id) {
+    await supabase.from('meals').delete().eq('id', id)
+    refresh()
+  }
+
+  const totals = todayMeals.reduce((a, m) => ({
+    kcal: a.kcal + (Number(m.calories) || 0),
+    p: a.p + (Number(m.protein) || 0),
+    c: a.c + (Number(m.carbs) || 0),
+    f: a.f + (Number(m.fat) || 0),
+  }), { kcal: 0, p: 0, c: 0, f: 0 })
+
+  return (
+    <Card className="bg-gradient-to-br from-neutral-900 to-green-950/20 border-neutral-800">
+      <CardHeader className="pb-3">
+        <div className="flex items-center gap-2">
+          <Utensils className="h-5 w-5 text-green-400" />
+          <CardTitle className="text-base">Journal nutrition</CardTitle>
+        </div>
+        <CardDescription>Décris, l&apos;IA estime les macros</CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        <div className="grid grid-cols-4 gap-2 text-center">
+          <div className="p-2 bg-neutral-950 rounded border border-neutral-800"><div className="text-[10px] text-neutral-500">kcal</div><div className="text-sm font-bold text-orange-300">{Math.round(totals.kcal)}</div></div>
+          <div className="p-2 bg-neutral-950 rounded border border-neutral-800"><div className="text-[10px] text-neutral-500">Prot</div><div className="text-sm font-bold text-red-300">{Math.round(totals.p)}g</div></div>
+          <div className="p-2 bg-neutral-950 rounded border border-neutral-800"><div className="text-[10px] text-neutral-500">Gluc</div><div className="text-sm font-bold text-yellow-300">{Math.round(totals.c)}g</div></div>
+          <div className="p-2 bg-neutral-950 rounded border border-neutral-800"><div className="text-[10px] text-neutral-500">Lip</div><div className="text-sm font-bold text-blue-300">{Math.round(totals.f)}g</div></div>
+        </div>
+        <div className="grid grid-cols-3 gap-2">
+          <Select value={mealType} onValueChange={setMealType}>
+            <SelectTrigger className="bg-neutral-950/80 border-neutral-800 text-xs"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              {MEAL_TYPES.map(t => <SelectItem key={t} value={t}>{t}</SelectItem>)}
+            </SelectContent>
+          </Select>
+          <Input value={desc} onChange={(e) => setDesc(e.target.value)} placeholder="Ex: poulet riz 400g" className="col-span-2 bg-neutral-950/80 border-neutral-800 text-xs" onKeyDown={(e) => e.key === 'Enter' && addMeal()} />
+        </div>
+        <Button onClick={addMeal} disabled={loading || !desc.trim()} className="w-full bg-gradient-to-r from-green-500 to-emerald-500 hover:from-green-600 hover:to-emerald-600 font-bold">
+          {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <><Plus className="h-4 w-4 mr-1" /> Ajouter le repas</>}
+        </Button>
+        {todayMeals.length > 0 && (
+          <div className="space-y-1.5">
+            {todayMeals.map(m => (
+              <div key={m.id} className="flex items-center gap-2 p-2 rounded-lg bg-neutral-950/50 border border-neutral-800">
+                <Apple className="h-3.5 w-3.5 text-green-400 shrink-0" />
+                <div className="flex-1 min-w-0">
+                  <div className="text-xs font-medium text-neutral-200 truncate">{m.name}</div>
+                  <div className="text-[10px] text-neutral-500">{m.meal_type} · {Math.round(m.calories || 0)}kcal · {Math.round(m.protein || 0)}g prot</div>
+                </div>
+                <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => del(m.id)}><Trash2 className="h-3.5 w-3.5 text-neutral-500" /></Button>
+              </div>
+            ))}
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  )
+}
+
+function NutritionWeekly({ userId, sport }) {
+  const supabase = getSupabaseBrowser()
+  const [meals, setMeals] = useState([])
+  const [loading, setLoading] = useState(false)
+  const [analysis, setAnalysis] = useState(null)
+
+  useEffect(() => {
+    (async () => {
+      const since = new Date(); since.setDate(since.getDate() - 7)
+      const { data } = await supabase.from('meals').select('*').eq('user_id', userId).gte('date', since.toISOString().slice(0, 10)).order('date', { ascending: false })
+      setMeals(data || [])
+    })()
+  }, [userId, supabase])
+
+  async function run() {
+    if (!meals.length) return toast.error('Aucun repas sur 7 jours')
+    setLoading(true)
+    try {
+      const res = await fetch('/api/nutrition/analyze', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ meals, sport }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.detail || data.error)
+      setAnalysis(data.analysis)
+      toast.success('Analyse nutrition prête')
+    } catch (err) {
+      toast.error(err.message)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  return (
+    <Card className="bg-neutral-900/60 border-neutral-800">
+      <CardHeader className="pb-2">
+        <div className="flex items-center gap-2">
+          <Utensils className="h-4 w-4 text-green-400" />
+          <CardTitle className="text-sm">Analyse nutrition (7 jours)</CardTitle>
+        </div>
+        <CardDescription className="text-xs">{meals.length} repas enregistrés</CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        <Button onClick={run} disabled={loading || !meals.length} className="w-full bg-gradient-to-r from-green-500 to-emerald-500 hover:from-green-600 hover:to-emerald-600 font-bold text-xs">
+          {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <><Sparkles className="h-4 w-4 mr-1" /> Analyser ma semaine</>}
+        </Button>
+        {analysis && !analysis.raw && (
+          <div className="space-y-2 text-sm">
+            {analysis.score_qualite != null && (
+              <div className="flex items-center gap-3 p-3 bg-green-500/10 border border-green-500/30 rounded-lg">
+                <div className="text-3xl font-black text-green-300">{analysis.score_qualite}</div>
+                <div className="text-xs text-neutral-300 flex-1">{analysis.verdict}</div>
+              </div>
+            )}
+            {analysis.moyennes_quotidiennes && (
+              <div className="grid grid-cols-4 gap-1.5 text-center text-[10px]">
+                <div className="p-1.5 bg-neutral-950 rounded"><div className="text-neutral-500">kcal/j</div><div className="font-bold text-orange-300">{Math.round(analysis.moyennes_quotidiennes.calories || 0)}</div></div>
+                <div className="p-1.5 bg-neutral-950 rounded"><div className="text-neutral-500">Prot/j</div><div className="font-bold text-red-300">{Math.round(analysis.moyennes_quotidiennes.protein || 0)}g</div></div>
+                <div className="p-1.5 bg-neutral-950 rounded"><div className="text-neutral-500">Gluc/j</div><div className="font-bold text-yellow-300">{Math.round(analysis.moyennes_quotidiennes.carbs || 0)}g</div></div>
+                <div className="p-1.5 bg-neutral-950 rounded"><div className="text-neutral-500">Lip/j</div><div className="font-bold text-blue-300">{Math.round(analysis.moyennes_quotidiennes.fat || 0)}g</div></div>
+              </div>
+            )}
+            {analysis.points_forts?.length > 0 && <Block title="Points forts" items={analysis.points_forts} />}
+            {analysis.points_amelioration?.length > 0 && <Block title="À améliorer" items={analysis.points_amelioration} />}
+            {analysis.conseils_actions?.length > 0 && <Block title="Actions" items={analysis.conseils_actions} />}
+            {analysis.hydratation_rappel && <div className="p-2 bg-blue-500/10 border border-blue-500/30 rounded text-[11px] text-blue-200">💧 {analysis.hydratation_rappel}</div>}
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  )
+}
+
 function Dashboard({ user, onSignOut }) {
   const supabase = getSupabaseBrowser()
   const [sport, setSport] = useState('MMA')
@@ -973,8 +1196,10 @@ function Dashboard({ user, onSignOut }) {
           </TabsList>
 
           <TabsContent value="today" className="space-y-4 mt-0">
+            <FormScoreCard latestHealth={latestHealth} />
             <HealthCard userId={user.id} latest={latestHealth} onSaved={setLatestHealth} />
             <ProgramCard userId={user.id} sport={sport} latestHealth={latestHealth} onNewProgram={setLastProgram} />
+            <NutritionCard userId={user.id} />
           </TabsContent>
 
           <TabsContent value="rpa" className="space-y-4 mt-0">
@@ -989,6 +1214,7 @@ function Dashboard({ user, onSignOut }) {
 
           <TabsContent value="history" className="space-y-4 mt-0">
             <TimelineTab userId={user.id} />
+            <NutritionWeekly userId={user.id} sport={sport} />
           </TabsContent>
         </Tabs>
       </main>
