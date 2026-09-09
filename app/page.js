@@ -209,6 +209,66 @@ const CORE_LIFTS = [
   { key: 'dc', label: 'Développé couché', emoji: '💪' },
   { key: 'sdt', label: 'Soulevé de terre', emoji: '⚡' },
 ]
+
+function OneRmTestAlert({ lastDates, coreCount }) {
+  const supabase = getSupabaseBrowser()
+  const oldest = CORE_LIFTS.map(l => lastDates[l.key]).filter(Boolean).sort()[0]
+  if (coreCount === 0) {
+    return (
+      <div className="p-2.5 rounded-lg bg-fuchsia-500/10 border border-fuchsia-500/30 text-xs text-fuchsia-200">
+        💡 Ajoute tes 1RM Big Three pour recalibrer tes charges IA
+      </div>
+    )
+  }
+  if (!oldest) return null
+  const daysSince = Math.floor((Date.now() - new Date(oldest).getTime()) / 86400000)
+  const remaining = 30 - daysSince
+  if (remaining > 7) return null // rien à afficher tant qu'on est loin
+  const dueNow = remaining <= 0
+
+  async function scheduleTest() {
+    const testDate = new Date(); testDate.setDate(testDate.getDate() + Math.max(1, remaining))
+    const dateStr = testDate.toISOString().slice(0, 10)
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) return
+    const program = {
+      date: dateStr, type: 'seance', intensite: 'forte', focus: 'Test 1RM Big Three',
+      duree_minutes: 75,
+      justification_choix: 'Test mensuel pour recalibrer les charges (>30 jours depuis le dernier test)',
+      echauffement: [
+        { nom: 'Cardio léger + mobilité', duree: '10 min', note: 'monter en température progressivement' },
+        { nom: 'Séries de préparation', duree: '10 min', note: 'monter en charge 50→70→85% avant le test' },
+      ],
+      corps_seance: [
+        { bloc: 'Test Squat', exercices: [{ nom: 'Back Squat 1RM', type: 'squat', series: '3-5', reps: '1', charge: 'monter jusqu\'au max sur 1 rep', repos: '3-5 min', note: 'demander une parade' }] },
+        { bloc: 'Test Développé couché', exercices: [{ nom: 'Développé couché 1RM', type: 'push', series: '3-5', reps: '1', charge: 'monter jusqu\'au max', repos: '3-5 min', note: 'parade obligatoire' }] },
+        { bloc: 'Test Soulevé de terre', exercices: [{ nom: 'Soulevé de terre 1RM', type: 'hinge', series: '3-5', reps: '1', charge: 'monter jusqu\'au max', repos: '3-5 min', note: 'dos gainé' }] },
+      ],
+      etirements: [{ nom: 'Étirements globaux', duree: '10 min', zone: 'jambes/dos/pecs' }],
+      conseil_coach: 'Enregistre tes nouveaux 1RM dans ONYX après la séance pour recalibrer toutes les charges',
+      notification: 'Test 1RM programmé aujourd\'hui — Squat, DC, SDT',
+    }
+    await supabase.from('workouts').insert({
+      user_id: user.id, date: dateStr, sport: 'Athlétisation',
+      type_seance: 'test_1rm', program_json: program, status: 'planifie',
+    })
+    toast.success(`💪 Test 1RM programmé pour le ${new Date(dateStr).toLocaleDateString('fr-FR')}`)
+  }
+
+  return (
+    <div className={`p-2.5 rounded-lg text-xs flex items-center gap-2 ${dueNow ? 'bg-red-500/15 border border-red-500/40 text-red-200' : 'bg-yellow-500/10 border border-yellow-500/30 text-yellow-200'}`}>
+      <BarChart3 className="h-4 w-4 shrink-0" />
+      <div className="flex-1">
+        {dueNow ? (
+          <><b>Test 1RM à faire !</b> Dernière mesure il y a {daysSince} jours</>
+        ) : (
+          <><b>Prochain test 1RM dans {remaining} j</b> — pour recalibrer les charges</>
+        )}
+      </div>
+      <Button size="sm" onClick={scheduleTest} className="h-7 text-xs bg-violet-500 hover:bg-violet-600">Programmer</Button>
+    </div>
+  )
+}
 const EXTRA_LIFTS = [
   { key: 'front_squat', label: 'Front Squat', emoji: '🦵' },
   { key: 'dm', label: 'Développé militaire', emoji: '💪' },
@@ -219,8 +279,9 @@ const EXTRA_LIFTS = [
 
 function OneRmCard({ userId, onChange }) {
   const supabase = getSupabaseBrowser()
-  const [entries, setEntries] = useState([]) // full history
-  const [current, setCurrent] = useState({}) // {key: valueKg} latest per exercise
+  const [entries, setEntries] = useState([])
+  const [current, setCurrent] = useState({})
+  const [lastDates, setLastDates] = useState({})
   const [inputs, setInputs] = useState({})
   const [saving, setSaving] = useState({})
   const [addingCustom, setAddingCustom] = useState(false)
@@ -230,10 +291,12 @@ function OneRmCard({ userId, onChange }) {
     const { data } = await supabase.from('one_rm').select('*').eq('user_id', userId).order('date', { ascending: false })
     setEntries(data || [])
     const map = {}
-    ;(data || []).forEach(row => { if (!map[row.exercise]) map[row.exercise] = row })
+    const dates = {}
+    ;(data || []).forEach(row => { if (!map[row.exercise]) { map[row.exercise] = row; dates[row.exercise] = row.date } })
     const currentMap = {}
     Object.entries(map).forEach(([k, v]) => { currentMap[k] = Number(v.value_kg) })
     setCurrent(currentMap)
+    setLastDates(dates)
     onChange?.(currentMap)
   }
 
@@ -324,6 +387,7 @@ function OneRmCard({ userId, onChange }) {
         <CardDescription>ONYX calibre tes charges (kg réels) à partir de tes maxis</CardDescription>
       </CardHeader>
       <CardContent className="space-y-2">
+        <OneRmTestAlert lastDates={lastDates} coreCount={CORE_LIFTS.filter(l => current[l.key]).length} />
         <div className="text-[10px] uppercase tracking-widest text-neutral-500">Big Three</div>
         {CORE_LIFTS.map(l => <LiftRow key={l.key} lift={l} />)}
         <div className="text-[10px] uppercase tracking-widest text-neutral-500 pt-2">Autres</div>
@@ -2114,6 +2178,177 @@ function WeekPlanCard({ userId, sport, latestHealth, recentWorkouts = [], profil
   )
 }
 
+function ProgressPhotosCard({ userId, sport, profile }) {
+  const supabase = getSupabaseBrowser()
+  const [progressPhotos, setProgressPhotos] = useState([])
+  const [target, setTarget] = useState(null)
+  const [loading, setLoading] = useState(false)
+  const [comparing, setComparing] = useState(false)
+  const [comparison, setComparison] = useState(null)
+  const progressRef = useRef(null)
+  const targetRef = useRef(null)
+
+  async function refresh() {
+    const { data: p } = await supabase.from('progress_photos').select('*').eq('user_id', userId).eq('kind', 'progress').order('date', { ascending: false }).limit(12)
+    setProgressPhotos(p || [])
+    const { data: t } = await supabase.from('progress_photos').select('*').eq('user_id', userId).eq('kind', 'target').order('created_at', { ascending: false }).limit(1)
+    if (t?.[0]) setTarget(t[0])
+  }
+  useEffect(() => { refresh() }, [userId]) // eslint-disable-line
+
+  async function upload(file, kind) {
+    if (!file) return
+    if (file.size > 5 * 1024 * 1024) return toast.error('Max 5 Mo')
+    setLoading(true)
+    try {
+      const dataUrl = await new Promise((resolve) => {
+        const r = new FileReader(); r.onload = () => resolve(r.result); r.readAsDataURL(file)
+      })
+      const { error } = await supabase.from('progress_photos').insert({
+        user_id: userId, kind, image_data: dataUrl, mime_type: file.type,
+        date: new Date().toISOString().slice(0, 10),
+      })
+      if (error) throw error
+      toast.success(kind === 'target' ? '🎯 Photo cible enregistrée' : '📸 Photo progression enregistrée')
+      refresh()
+    } catch (err) {
+      toast.error(err.message)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  async function del(id) {
+    await supabase.from('progress_photos').delete().eq('id', id)
+    refresh()
+    setComparison(null)
+  }
+
+  async function compare() {
+    if (!progressPhotos.length || !target) return toast.error('Il faut au moins 1 photo perso et 1 photo cible')
+    setComparing(true)
+    setComparison(null)
+    try {
+      const userPhoto = progressPhotos[0]
+      const userB64 = String(userPhoto.image_data).split(',')[1]
+      const targetB64 = String(target.image_data).split(',')[1]
+      const res = await fetch('/api/photo/compare', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          userImage: { base64: userB64, mimeType: userPhoto.mime_type },
+          targetImage: { base64: targetB64, mimeType: target.mime_type },
+          sport, goals: profile?.objectifs || '',
+        }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.detail || data.error)
+      setComparison(data.analysis)
+      // Save analysis on user photo
+      await supabase.from('progress_photos').update({ ai_analysis: data.analysis }).eq('id', userPhoto.id)
+      toast.success('🎯 Comparaison faite par Gemini Vision')
+    } catch (err) {
+      toast.error(err.message)
+    } finally {
+      setComparing(false)
+    }
+  }
+
+  const prio = (p) => p === 'haute' ? 'bg-red-500/20 text-red-300 border-red-500/40' : p === 'moyenne' ? 'bg-yellow-500/20 text-yellow-300 border-yellow-500/40' : 'bg-neutral-800 text-neutral-400'
+
+  return (
+    <Card className="bg-gradient-to-br from-neutral-900 to-fuchsia-950/20 border-neutral-800">
+      <CardHeader>
+        <div className="flex items-center gap-2">
+          <ImageIcon className="h-5 w-5 text-fuchsia-400" />
+          <CardTitle className="text-base">Photo progression & cible</CardTitle>
+        </div>
+        <CardDescription>Photo hebdo + comparaison à ton physique cible</CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        <input ref={progressRef} type="file" accept="image/*" capture="environment" className="hidden" onChange={(e) => upload(e.target.files?.[0], 'progress')} />
+        <input ref={targetRef} type="file" accept="image/*" className="hidden" onChange={(e) => upload(e.target.files?.[0], 'target')} />
+        <div className="grid grid-cols-2 gap-2">
+          <Button onClick={() => progressRef.current?.click()} disabled={loading} className="bg-gradient-to-r from-fuchsia-500 to-violet-500 hover:from-fuchsia-600 hover:to-violet-600 text-xs h-9 font-bold">
+            {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <>📸 Photo semaine</>}
+          </Button>
+          <Button onClick={() => targetRef.current?.click()} disabled={loading} variant="outline" className="border-fuchsia-500/50 hover:bg-fuchsia-500/10 text-xs h-9 font-bold">
+            🎯 {target ? 'Changer cible' : 'Photo cible'}
+          </Button>
+        </div>
+
+        {progressPhotos.length > 0 && (
+          <div>
+            <div className="text-[10px] uppercase text-neutral-500 tracking-widest mb-1.5">Historique ({progressPhotos.length})</div>
+            <div className="flex gap-2 overflow-x-auto pb-1">
+              {progressPhotos.map(p => (
+                <div key={p.id} className="relative shrink-0 group">
+                  <img src={p.image_data} alt={p.date} className="h-24 w-16 object-cover rounded-lg border border-neutral-800" />
+                  <div className="absolute bottom-0 left-0 right-0 text-[9px] text-white text-center bg-black/70 py-0.5">
+                    {new Date(p.date).toLocaleDateString('fr-FR', { day: '2-digit', month: 'short' })}
+                  </div>
+                  <button onClick={() => del(p.id)} className="absolute top-0.5 right-0.5 h-5 w-5 rounded-full bg-red-500/80 text-white text-[10px] opacity-0 group-hover:opacity-100 transition">✕</button>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {target && (
+          <div className="flex items-center gap-3 p-2 rounded-lg bg-neutral-950 border border-fuchsia-500/30">
+            <img src={target.image_data} alt="cible" className="h-16 w-12 object-cover rounded" />
+            <div className="flex-1 text-xs">
+              <div className="text-fuchsia-300 font-semibold">🎯 Physique cible</div>
+              <div className="text-[10px] text-neutral-500">Défini le {new Date(target.date).toLocaleDateString('fr-FR')}</div>
+            </div>
+            <Button size="icon" variant="ghost" onClick={() => del(target.id)} className="h-7 w-7"><Trash2 className="h-3.5 w-3.5 text-neutral-500" /></Button>
+          </div>
+        )}
+
+        {progressPhotos.length > 0 && target && (
+          <Button onClick={compare} disabled={comparing} className="w-full bg-gradient-to-r from-violet-500 to-fuchsia-500 hover:from-violet-600 hover:to-fuchsia-600 font-bold">
+            {comparing ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" /> Analyse Vision…</> : <><Sparkles className="h-4 w-4 mr-2" /> Comparer & identifier les muscles à travailler</>}
+          </Button>
+        )}
+
+        {comparison && !comparison.raw && (
+          <div className="space-y-2 text-sm">
+            {comparison.ecart_principal && (
+              <div className="p-3 bg-violet-500/10 border border-violet-500/30 rounded-lg text-violet-100 text-xs italic">📊 {sanitize(comparison.ecart_principal)}</div>
+            )}
+            {comparison.muscles_a_developper?.length > 0 && (
+              <div>
+                <div className="text-[10px] uppercase text-neutral-500 tracking-widest mb-2">Muscles à développer (priorisés)</div>
+                <div className="space-y-2">
+                  {comparison.muscles_a_developper.map((m, i) => (
+                    <div key={i} className="p-2.5 rounded-lg bg-neutral-950 border border-neutral-800 space-y-1">
+                      <div className="flex items-center gap-2">
+                        <span className="font-semibold text-neutral-100 text-sm capitalize">{m.zone}</span>
+                        <Badge className={`text-[9px] ${prio(m.priorite)}`}>{m.priorite}</Badge>
+                      </div>
+                      {m.raison && <div className="text-[11px] text-neutral-400 italic">{sanitize(m.raison)}</div>}
+                      {m.exercices_cles?.length > 0 && (
+                        <div className="flex flex-wrap gap-1 pt-1">
+                          {m.exercices_cles.map((ex, j) => (
+                            <a key={j} href={youtubeSearchUrl(ex)} target="_blank" rel="noopener noreferrer" className="text-[10px] bg-fuchsia-500/20 text-fuchsia-200 px-2 py-0.5 rounded border border-fuchsia-500/40 hover:bg-fuchsia-500/30">🎥 {ex}</a>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+            {comparison.recommandation_nutrition && (
+              <div className="p-2 rounded bg-green-500/10 border border-green-500/30 text-xs text-green-200">🍽️ Nutrition : <b>{sanitize(comparison.recommandation_nutrition)}</b>{comparison.delai_realiste_semaines ? ` · Objectif atteignable en ~${comparison.delai_realiste_semaines} semaines` : ''}</div>
+            )}
+            {comparison.avertissement && <div className="text-[10px] text-neutral-500 italic">⚠️ {sanitize(comparison.avertissement)}</div>}
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  )
+}
+
 function Dashboard({ user, onSignOut }) {
   const supabase = getSupabaseBrowser()
   const [sport, setSport] = useState('MMA')
@@ -2235,6 +2470,7 @@ function Dashboard({ user, onSignOut }) {
 
           <TabsContent value="history" className="space-y-4 mt-0">
             <WeekPlanCard userId={user.id} sport={sport} latestHealth={latestHealth} profile={profile} recentWorkouts={recentWorkouts} />
+            <ProgressPhotosCard userId={user.id} sport={sport} profile={profile} />
             <TimelineTab userId={user.id} />
             <NutritionWeekly userId={user.id} sport={sport} />
           </TabsContent>

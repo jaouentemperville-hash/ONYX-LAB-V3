@@ -451,6 +451,53 @@ Réponds strictement en JSON:
     }
 
     // ==============================
+    // Compare user physique to a TARGET physique (Gemini Vision, 2 images)
+    // ==============================
+    if (route === '/photo/compare' && method === 'POST') {
+      const body = await request.json().catch(() => ({}))
+      const { userImage = null, targetImage = null, sport = 'MMA', goals = '' } = body
+      if (!userImage?.base64 || !targetImage?.base64) {
+        return cors(NextResponse.json({ error: 'userImage and targetImage required' }, { status: 400 }))
+      }
+
+      const system = `Tu es un préparateur physique expert en sports de combat.
+Tu compares le physique ACTUEL d'un athlète (image 1) à un physique CIBLE souhaité (image 2).
+Tu identifies les groupes musculaires à développer en priorité et proposes un plan concret.
+Tu réponds STRICTEMENT en JSON français. Reste bienveillant et prudent.`
+
+      const prompt = `IMAGE 1 = PHYSIQUE ACTUEL de l'athlète.
+IMAGE 2 = PHYSIQUE CIBLE (objectif visuel).
+
+SPORT: ${sport}
+OBJECTIFS DÉCLARÉS: ${goals || 'esthétique + performance combat'}
+
+Réponds strictement en JSON:
+{
+  "estimation_actuel": {"masse_musculaire": "faible|moyenne|bonne|elevee", "gras_visible": "bas|moyen|eleve"},
+  "estimation_cible": {"masse_musculaire": "faible|moyenne|bonne|elevee", "gras_visible": "bas|moyen|eleve"},
+  "ecart_principal": "1-2 phrases sur ce qui distingue les 2 physiques",
+  "muscles_a_developper": [
+    {"zone": "épaules", "priorite": "haute|moyenne|basse", "raison": "...", "exercices_cles": ["développé militaire","élévations latérales"]},
+    {"zone": "dos", "priorite": "haute", "raison": "...", "exercices_cles": ["tractions","rowing"]}
+  ],
+  "muscles_a_maintenir": ["jambes", "..."],
+  "recommandation_nutrition": "prise de masse|maintien|sèche legère",
+  "delai_realiste_semaines": 24,
+  "avertissement": "Une seule image ne remplace pas un bilan pro, et la génétique fait varier les résultats."
+}`
+
+      const raw = await chatVision({
+        system, prompt,
+        images: [
+          { base64: userImage.base64, mime: userImage.mimeType || 'image/jpeg' },
+          { base64: targetImage.base64, mime: targetImage.mimeType || 'image/jpeg' },
+        ],
+      })
+      const json = extractJson(raw)
+      return cors(NextResponse.json({ analysis: json || { raw }, raw }))
+    }
+
+    // ==============================
     // Weekly nutrition analysis (Gemini)
     // ==============================
     if (route === '/nutrition/analyze' && method === 'POST') {

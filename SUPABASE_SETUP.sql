@@ -115,6 +115,20 @@ create table if not exists public.one_rm (
 );
 create index if not exists one_rm_user_idx on public.one_rm(user_id, exercise, date desc);
 
+-- Photos de progression / physique cible
+create table if not exists public.progress_photos (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references auth.users(id) on delete cascade,
+  date date not null default current_date,
+  kind text default 'progress',
+  image_data text not null,
+  mime_type text default 'image/jpeg',
+  ai_analysis jsonb,
+  notes text,
+  created_at timestamptz not null default now()
+);
+create index if not exists progress_photos_user_idx on public.progress_photos(user_id, kind, date desc);
+
 -- ================================================================
 -- 3) ROW LEVEL SECURITY
 -- ================================================================
@@ -125,6 +139,7 @@ alter table public.session_feedback enable row level security;
 alter table public.imports          enable row level security;
 alter table public.meals            enable row level security;
 alter table public.one_rm           enable row level security;
+alter table public.progress_photos  enable row level security;
 
 -- PROFILES
 drop policy if exists "profiles_select_own" on public.profiles;
@@ -196,6 +211,16 @@ drop policy if exists "one_rm_update_own" on public.one_rm;
 create policy "one_rm_update_own" on public.one_rm for update to authenticated using ((select auth.uid()) = user_id) with check ((select auth.uid()) = user_id);
 drop policy if exists "one_rm_delete_own" on public.one_rm;
 create policy "one_rm_delete_own" on public.one_rm for delete to authenticated using ((select auth.uid()) = user_id);
+
+-- PROGRESS PHOTOS
+drop policy if exists "photos_select_own" on public.progress_photos;
+create policy "photos_select_own" on public.progress_photos for select to authenticated using ((select auth.uid()) = user_id);
+drop policy if exists "photos_insert_own" on public.progress_photos;
+create policy "photos_insert_own" on public.progress_photos for insert to authenticated with check ((select auth.uid()) = user_id);
+drop policy if exists "photos_update_own" on public.progress_photos;
+create policy "photos_update_own" on public.progress_photos for update to authenticated using ((select auth.uid()) = user_id) with check ((select auth.uid()) = user_id);
+drop policy if exists "photos_delete_own" on public.progress_photos;
+create policy "photos_delete_own" on public.progress_photos for delete to authenticated using ((select auth.uid()) = user_id);
 
 -- ================================================================
 -- 4) TRIGGER auto-création profil à l'inscription
