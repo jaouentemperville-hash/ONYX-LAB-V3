@@ -129,6 +129,17 @@ create table if not exists public.progress_photos (
 );
 create index if not exists progress_photos_user_idx on public.progress_photos(user_id, kind, date desc);
 
+-- ONYX Semaine — focus hebdomadaire de l'athlète
+create table if not exists public.week_focus (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references auth.users(id) on delete cascade,
+  week_key text not null,
+  focus text not null,
+  created_at timestamptz not null default now(),
+  unique (user_id, week_key)
+);
+create index if not exists week_focus_user_idx on public.week_focus(user_id, week_key desc);
+
 -- ================================================================
 -- 3) ROW LEVEL SECURITY
 -- ================================================================
@@ -140,6 +151,7 @@ alter table public.imports          enable row level security;
 alter table public.meals            enable row level security;
 alter table public.one_rm           enable row level security;
 alter table public.progress_photos  enable row level security;
+alter table public.week_focus       enable row level security;
 
 -- PROFILES
 drop policy if exists "profiles_select_own" on public.profiles;
@@ -221,6 +233,16 @@ drop policy if exists "photos_update_own" on public.progress_photos;
 create policy "photos_update_own" on public.progress_photos for update to authenticated using ((select auth.uid()) = user_id) with check ((select auth.uid()) = user_id);
 drop policy if exists "photos_delete_own" on public.progress_photos;
 create policy "photos_delete_own" on public.progress_photos for delete to authenticated using ((select auth.uid()) = user_id);
+
+-- WEEK FOCUS
+drop policy if exists "week_focus_select_own" on public.week_focus;
+create policy "week_focus_select_own" on public.week_focus for select to authenticated using ((select auth.uid()) = user_id);
+drop policy if exists "week_focus_insert_own" on public.week_focus;
+create policy "week_focus_insert_own" on public.week_focus for insert to authenticated with check ((select auth.uid()) = user_id);
+drop policy if exists "week_focus_update_own" on public.week_focus;
+create policy "week_focus_update_own" on public.week_focus for update to authenticated using ((select auth.uid()) = user_id) with check ((select auth.uid()) = user_id);
+drop policy if exists "week_focus_delete_own" on public.week_focus;
+create policy "week_focus_delete_own" on public.week_focus for delete to authenticated using ((select auth.uid()) = user_id);
 
 -- ================================================================
 -- 4) TRIGGER auto-création profil à l'inscription

@@ -415,7 +415,153 @@ function OneRmCard({ userId, onChange }) {
   )
 }
 
-function WeekStrip({ userId, sport, profile, selectedDate, onDayClick }) {
+function isoWeekKey(date = new Date()) {
+  const d = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()))
+  const dayNum = d.getUTCDay() || 7
+  d.setUTCDate(d.getUTCDate() + 4 - dayNum)
+  const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1))
+  const weekNum = Math.ceil((((d - yearStart) / 86400000) + 1) / 7)
+  return `${d.getUTCFullYear()}-W${String(weekNum).padStart(2, '0')}`
+}
+
+function WeekFocusCard({ userId }) {
+  const supabase = getSupabaseBrowser()
+  const [focus, setFocus] = useState('')
+  const [current, setCurrent] = useState(null)
+  const [editing, setEditing] = useState(false)
+  const [loading, setLoading] = useState(false)
+  const weekKey = isoWeekKey()
+
+  async function load() {
+    const { data } = await supabase.from('week_focus').select('*').eq('user_id', userId).eq('week_key', weekKey).maybeSingle()
+    if (data) { setCurrent(data); setFocus(data.focus) } else { setCurrent(null); setFocus('') }
+  }
+  useEffect(() => { load() }, [userId]) // eslint-disable-line
+
+  async function save() {
+    if (!focus.trim()) return toast.error('Décris ton focus de la semaine')
+    setLoading(true)
+    try {
+      const payload = { user_id: userId, week_key: weekKey, focus: focus.trim() }
+      const { error } = await supabase.from('week_focus').upsert(payload, { onConflict: 'user_id,week_key' })
+      if (error) throw error
+      setCurrent(payload)
+      setEditing(false)
+      toast.success('🎯 Focus de la semaine enregistré')
+    } catch (err) {
+      toast.error(err.message)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  // If focus exists and not editing -> compact banner
+  if (current && !editing) {
+    return (
+      <div className="flex items-center gap-2 p-2.5 rounded-lg bg-gradient-to-r from-violet-500/20 to-fuchsia-500/20 border border-violet-500/40">
+        <span className="text-lg">🎯</span>
+        <div className="flex-1 min-w-0">
+          <div className="text-[9px] uppercase tracking-widest text-violet-300 font-bold">Focus ONYX · Semaine {weekKey.split('-W')[1]}</div>
+          <div className="text-xs text-neutral-100 font-medium truncate">{sanitize(current.focus)}</div>
+        </div>
+        <Button size="sm" variant="ghost" className="h-7 text-[10px] text-violet-300" onClick={() => setEditing(true)}>Modifier</Button>
+      </div>
+    )
+  }
+
+  return (
+    <Card className="bg-gradient-to-br from-violet-950/40 to-fuchsia-950/30 border-violet-500/40">
+      <CardHeader className="pb-2">
+        <div className="flex items-center gap-2">
+          <Target className="h-5 w-5 text-violet-400" />
+          <CardTitle className="text-base">ONYX Semaine</CardTitle>
+        </div>
+        <CardDescription>Quel est ton focus cette semaine ?</CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-2">
+        <Input
+          value={focus} onChange={(e) => setFocus(e.target.value)}
+          placeholder="Ex: explosivité et sparring · sèche 2 kg · technique passages de garde…"
+          className="bg-neutral-950 border-neutral-800"
+          onKeyDown={(e) => e.key === 'Enter' && save()}
+        />
+        <div className="flex gap-2">
+          <Button onClick={save} disabled={loading || !focus.trim()} className="flex-1 bg-gradient-to-r from-violet-500 to-fuchsia-500 hover:from-violet-600 hover:to-fuchsia-600 font-bold">
+            {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <><Check className="h-4 w-4 mr-1" /> Valider</>}
+          </Button>
+          {current && <Button variant="outline" onClick={() => { setEditing(false); setFocus(current.focus) }} className="border-neutral-700">Annuler</Button>}
+        </div>
+      </CardContent>
+    </Card>
+  )
+}
+
+function ClubDaysQuickPicker({ userId, profile, onChange }) {
+  const supabase = getSupabaseBrowser()
+  const [saving, setSaving] = useState(false)
+  const [open, setOpen] = useState(false)
+  const DAY_KEYS = ['lun', 'mar', 'mer', 'jeu', 'ven', 'sam', 'dim']
+  const DAY_LABELS = { lun: 'L', mar: 'M', mer: 'M', jeu: 'J', ven: 'V', sam: 'S', dim: 'D' }
+  const schedule = profile?.club_schedule || []
+  const activeKeys = new Set(schedule.map(s => s.day))
+
+  async function toggle(dayKey) {
+    setSaving(true)
+    try {
+      let next
+      if (activeKeys.has(dayKey)) {
+        next = schedule.filter(s => s.day !== dayKey)
+      } else {
+        next = [...schedule, { day: dayKey, time: '19:00', type: 'club', duration: 90 }]
+      }
+      await supabase.from('profiles').update({ club_schedule: next }).eq('id', userId)
+      onChange?.(next)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  async function reset() {
+    setSaving(true)
+    try {
+      await supabase.from('profiles').update({ club_schedule: [] }).eq('id', userId)
+      onChange?.([])
+      toast.success('Jours club réinitialisés')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div className="space-y-1.5">
+      <div className="flex items-center justify-between gap-2">
+        <button onClick={() => setOpen(!open)} className="text-[10px] uppercase tracking-widest text-neutral-400 hover:text-neutral-200 flex items-center gap-1">
+          <MapPin className="h-3 w-3" /> Jours club (récurrents)
+          <ChevronRight className={`h-3 w-3 transition-transform ${open ? 'rotate-90' : ''}`} />
+        </button>
+        {open && activeKeys.size > 0 && (
+          <button onClick={reset} className="text-[10px] text-red-300 hover:text-red-200">↺ Réinitialiser</button>
+        )}
+      </div>
+      {open && (
+        <div className="flex gap-1">
+          {DAY_KEYS.map(k => (
+            <button
+              key={k}
+              disabled={saving}
+              onClick={() => toggle(k)}
+              className={`h-8 flex-1 rounded text-[11px] font-bold transition ${activeKeys.has(k) ? 'bg-fuchsia-500 text-white shadow shadow-fuchsia-500/50' : 'bg-neutral-800 text-neutral-500 hover:bg-neutral-700'}`}
+            >
+              {DAY_LABELS[k]}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function WeekStrip({ userId, sport, profile, selectedDate, onDayClick, onProfileChange }) {
   const supabase = getSupabaseBrowser()
   const [plan, setPlan] = useState(null)
 
@@ -465,7 +611,8 @@ function WeekStrip({ userId, sport, profile, selectedDate, onDayClick }) {
           )}
         </div>
       </CardHeader>
-      <CardContent className="pb-3">
+      <CardContent className="pb-3 space-y-2.5">
+        <ClubDaysQuickPicker userId={userId} profile={profile} onChange={(next) => onProfileChange?.({ ...profile, club_schedule: next })} />
         <div className="grid grid-cols-7 gap-1">
           {days.map((d, i) => {
             const isRest = String(d.type || '').startsWith('repos')
@@ -2628,7 +2775,8 @@ function Dashboard({ user, onSignOut }) {
               </div>
             )}
             <ObjectiveBanner profile={profile} />
-            <WeekStrip userId={user.id} sport={sport} profile={profile} selectedDate={selectedDate} onDayClick={(d) => setSelectedDate(d.date)} />
+            <WeekFocusCard userId={user.id} />
+            <WeekStrip userId={user.id} sport={sport} profile={profile} selectedDate={selectedDate} onDayClick={(d) => setSelectedDate(d.date)} onProfileChange={setProfile} />
             {selectedDate !== new Date().toISOString().slice(0, 10) && (
               <div className="flex items-center gap-2 p-2 rounded-lg bg-fuchsia-500/10 border border-fuchsia-500/30 text-xs text-fuchsia-200">
                 <CalendarDays className="h-3.5 w-3.5 shrink-0" />
@@ -2639,7 +2787,6 @@ function Dashboard({ user, onSignOut }) {
             <FormScoreCard latestHealth={latestHealth} />
             <HealthCard userId={user.id} latest={latestHealth} onSaved={setLatestHealth} />
             <ProgramCard userId={user.id} sport={sport} latestHealth={latestHealth} profile={profile} oneRm={oneRmMap} recentWorkouts={recentWorkouts} initialProgram={selectedProgram} selectedDate={selectedDate} isClubDay={isClubDay} onNewProgram={setLastProgram} />
-            <OneRmCard userId={user.id} onChange={setOneRmMap} />
             <NutritionCard userId={user.id} />
           </TabsContent>
 
@@ -2654,6 +2801,7 @@ function Dashboard({ user, onSignOut }) {
           </TabsContent>
 
           <TabsContent value="history" className="space-y-4 mt-0">
+            <OneRmCard userId={user.id} onChange={setOneRmMap} />
             <WeekPlanCard userId={user.id} sport={sport} latestHealth={latestHealth} profile={profile} recentWorkouts={recentWorkouts} />
             <ProgressPhotosCard userId={user.id} sport={sport} profile={profile} />
             <TimelineTab userId={user.id} />
