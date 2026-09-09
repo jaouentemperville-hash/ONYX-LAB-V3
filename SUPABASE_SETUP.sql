@@ -102,6 +102,19 @@ create table if not exists public.meals (
 );
 create index if not exists meals_user_date_idx on public.meals(user_id, date desc);
 
+-- 1RM tracking (maxis force pour recalibrer les charges)
+create table if not exists public.one_rm (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references auth.users(id) on delete cascade,
+  date date not null default current_date,
+  exercise text not null,
+  value_kg numeric not null,
+  reps integer default 1,
+  notes text,
+  created_at timestamptz not null default now()
+);
+create index if not exists one_rm_user_idx on public.one_rm(user_id, exercise, date desc);
+
 -- ================================================================
 -- 3) ROW LEVEL SECURITY
 -- ================================================================
@@ -111,6 +124,7 @@ alter table public.workouts         enable row level security;
 alter table public.session_feedback enable row level security;
 alter table public.imports          enable row level security;
 alter table public.meals            enable row level security;
+alter table public.one_rm           enable row level security;
 
 -- PROFILES
 drop policy if exists "profiles_select_own" on public.profiles;
@@ -172,6 +186,16 @@ drop policy if exists "meals_update_own" on public.meals;
 create policy "meals_update_own" on public.meals for update to authenticated using ((select auth.uid()) = user_id) with check ((select auth.uid()) = user_id);
 drop policy if exists "meals_delete_own" on public.meals;
 create policy "meals_delete_own" on public.meals for delete to authenticated using ((select auth.uid()) = user_id);
+
+-- ONE RM
+drop policy if exists "one_rm_select_own" on public.one_rm;
+create policy "one_rm_select_own" on public.one_rm for select to authenticated using ((select auth.uid()) = user_id);
+drop policy if exists "one_rm_insert_own" on public.one_rm;
+create policy "one_rm_insert_own" on public.one_rm for insert to authenticated with check ((select auth.uid()) = user_id);
+drop policy if exists "one_rm_update_own" on public.one_rm;
+create policy "one_rm_update_own" on public.one_rm for update to authenticated using ((select auth.uid()) = user_id) with check ((select auth.uid()) = user_id);
+drop policy if exists "one_rm_delete_own" on public.one_rm;
+create policy "one_rm_delete_own" on public.one_rm for delete to authenticated using ((select auth.uid()) = user_id);
 
 -- ================================================================
 -- 4) TRIGGER auto-création profil à l'inscription

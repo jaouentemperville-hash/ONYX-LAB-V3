@@ -131,6 +131,7 @@ JSON strict:
         poids_kg = null,
         taille_cm = null,
         club_schedule = [],
+        one_rm = {},
         hrv = null,
         sleep_hours = null,
         recovery_score = null,
@@ -153,6 +154,7 @@ SPORT: ${sport}
 NIVEAU: ${level}
 OBJECTIFS: ${goals || 'polyvalence combat'}
 POIDS DE CORPS: ${poids_kg ? poids_kg + ' kg' : 'non renseigné'} ${taille_cm ? '· TAILLE: ' + taille_cm + ' cm' : ''}
+1RM CONNUS (kg): ${JSON.stringify(one_rm)} ${Object.keys(one_rm || {}).length ? '(utilise ces 1RM pour calculer les charges kg RÉELLES sur ces exercices)' : ''}
 HORAIRES CLUB: ${JSON.stringify(club_schedule)} ${(club_schedule || []).length ? '(intègre ces créneaux si compatibles avec aujourd\'hui)' : ''}
 ENVIES DU JOUR: ${envies || 'aucune préférence'}
 ARTICULATIONS SENSIBLES: ${joints || 'aucune'}
@@ -170,7 +172,9 @@ RÈGLES:
 - Bonne récup (HRV bon, sommeil>7h, fatigue<5) et pas de séance dure hier → intensité FORTE
 - Sinon → MODÉRÉE
 - Durée cohérente: 30-45 min repos actif / 60 min modéré / 75-90 min forte
-- IMPORTANT: si poids de corps est renseigné, exprime les charges en KG RÉEL (calcul direct depuis % du poids). Sinon en %.
+- IMPORTANT: si 1RM est renseigné pour l'exercice (squat/dc/sdt/etc), exprime la charge en KG RÉEL calculé sur le 1RM (ex: "70% de 140kg → 98 kg").
+- Sinon si poids de corps est renseigné pour un exercice au poids de corps ou % du poids, exprime en KG RÉEL.
+- Sinon en pourcentage.
 - N'utilise PAS de caractères "@" dans les valeurs de charge ; écris "à 70% du poids de corps" ou "avec 55 kg".
 - Chaque exercice: précise "type" simple parmi: squat|hinge|push|pull|core|plyo|cardio|mobilite|combat|technique.
 

@@ -20,7 +20,7 @@ import {
   Link2, HeartPulse, Moon, Zap, ShieldAlert, ChevronRight, Play, Trash2, ClipboardList,
   Bell, BellRing, Image as ImageIcon, Volume2, VolumeX, History, TrendingUp, Upload,
   Utensils, Apple, Plus, Gauge, Calendar, CalendarDays, Smartphone, Copy, Check,
-  Settings, Target, Weight, Ruler, Youtube, ChevronDown, Eye, MapPin,
+  Settings, Target, Weight, Ruler, Youtube, ChevronDown, Eye, MapPin, BarChart3, TrendingUp as TrendUp,
 } from 'lucide-react'
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts'
 
@@ -201,6 +201,153 @@ function ObjectiveBanner({ profile }) {
         <div className="text-xs text-neutral-200 leading-relaxed">{sanitize(profile.objectifs)}</div>
       </div>
     </div>
+  )
+}
+
+const CORE_LIFTS = [
+  { key: 'squat', label: 'Squat', emoji: '🦵' },
+  { key: 'dc', label: 'Développé couché', emoji: '💪' },
+  { key: 'sdt', label: 'Soulevé de terre', emoji: '⚡' },
+]
+const EXTRA_LIFTS = [
+  { key: 'front_squat', label: 'Front Squat', emoji: '🦵' },
+  { key: 'dm', label: 'Développé militaire', emoji: '💪' },
+  { key: 'rowing', label: 'Rowing barre', emoji: '🎯' },
+  { key: 'clean', label: 'Épaulé', emoji: '⚡' },
+  { key: 'traction_lest', label: 'Traction lestée', emoji: '🎯' },
+]
+
+function OneRmCard({ userId, onChange }) {
+  const supabase = getSupabaseBrowser()
+  const [entries, setEntries] = useState([]) // full history
+  const [current, setCurrent] = useState({}) // {key: valueKg} latest per exercise
+  const [inputs, setInputs] = useState({})
+  const [saving, setSaving] = useState({})
+  const [addingCustom, setAddingCustom] = useState(false)
+  const [customName, setCustomName] = useState('')
+
+  async function refresh() {
+    const { data } = await supabase.from('one_rm').select('*').eq('user_id', userId).order('date', { ascending: false })
+    setEntries(data || [])
+    const map = {}
+    ;(data || []).forEach(row => { if (!map[row.exercise]) map[row.exercise] = row })
+    const currentMap = {}
+    Object.entries(map).forEach(([k, v]) => { currentMap[k] = Number(v.value_kg) })
+    setCurrent(currentMap)
+    onChange?.(currentMap)
+  }
+
+  useEffect(() => { refresh() }, [userId]) // eslint-disable-line
+
+  async function save(key) {
+    const val = Number(inputs[key])
+    if (!val || val <= 0) { toast.error('Charge invalide'); return }
+    setSaving(s => ({ ...s, [key]: true }))
+    try {
+      const { error } = await supabase.from('one_rm').insert({
+        user_id: userId, exercise: key, value_kg: val, reps: 1, date: new Date().toISOString().slice(0, 10),
+      })
+      if (error) throw error
+      toast.success(`💪 ${key.toUpperCase()} : ${val} kg enregistré`)
+      setInputs(i => ({ ...i, [key]: '' }))
+      refresh()
+    } catch (err) {
+      toast.error(err.message)
+    } finally {
+      setSaving(s => ({ ...s, [key]: false }))
+    }
+  }
+
+  async function addCustom() {
+    const name = customName.trim().toLowerCase().replaceAll(' ', '_')
+    if (!name) { toast.error('Nom requis'); return }
+    setInputs(i => ({ ...i, [name]: '' }))
+    setAddingCustom(false)
+    setCustomName('')
+    toast.success(`Nouvel exercice « ${customName} » ajouté`)
+  }
+
+  const knownKeys = new Set([...CORE_LIFTS.map(l => l.key), ...EXTRA_LIFTS.map(l => l.key)])
+  const customKeys = Object.keys(current).filter(k => !knownKeys.has(k))
+
+  function LiftRow({ lift }) {
+    const cur = current[lift.key]
+    const history = entries.filter(e => e.exercise === lift.key).slice(0, 5).reverse()
+    const trend = history.length >= 2 ? Number(history[history.length - 1].value_kg) - Number(history[0].value_kg) : 0
+    return (
+      <div className="p-2.5 rounded-lg bg-neutral-950/60 border border-neutral-800">
+        <div className="flex items-center gap-2">
+          <span className="text-xl leading-none">{lift.emoji}</span>
+          <div className="flex-1 min-w-0">
+            <div className="text-xs font-semibold text-neutral-200">{lift.label}</div>
+            {cur ? (
+              <div className="text-[10px] text-neutral-500 flex items-center gap-2">
+                <span className="text-fuchsia-300 font-bold text-sm">{cur} kg</span>
+                {trend > 0 && <span className="text-green-400">↗ +{trend} kg</span>}
+                {trend < 0 && <span className="text-red-400">↘ {trend} kg</span>}
+              </div>
+            ) : (
+              <div className="text-[10px] text-neutral-500 italic">non renseigné</div>
+            )}
+          </div>
+          <Input
+            type="number" step="2.5" placeholder="kg"
+            value={inputs[lift.key] ?? ''}
+            onChange={(e) => setInputs(i => ({ ...i, [lift.key]: e.target.value }))}
+            onKeyDown={(e) => e.key === 'Enter' && save(lift.key)}
+            className="h-8 w-16 bg-neutral-900 border-neutral-800 text-xs text-center"
+          />
+          <Button size="icon" variant="ghost" className="h-8 w-8" disabled={saving[lift.key]} onClick={() => save(lift.key)}>
+            {saving[lift.key] ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Plus className="h-3.5 w-3.5 text-violet-400" />}
+          </Button>
+        </div>
+        {history.length >= 2 && (
+          <div className="mt-1.5 h-8">
+            <ResponsiveContainer width="100%" height="100%">
+              <LineChart data={history.map(h => ({ v: Number(h.value_kg) }))}>
+                <Line type="monotone" dataKey="v" stroke="#a855f7" strokeWidth={2} dot={{ r: 2 }} />
+              </LineChart>
+            </ResponsiveContainer>
+          </div>
+        )}
+      </div>
+    )
+  }
+
+  return (
+    <Card className="bg-gradient-to-br from-neutral-900 to-violet-950/20 border-neutral-800">
+      <CardHeader className="pb-3">
+        <div className="flex items-center gap-2">
+          <BarChart3 className="h-5 w-5 text-violet-400" />
+          <CardTitle className="text-base">Suivi 1RM · Charges max</CardTitle>
+        </div>
+        <CardDescription>ONYX calibre tes charges (kg réels) à partir de tes maxis</CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-2">
+        <div className="text-[10px] uppercase tracking-widest text-neutral-500">Big Three</div>
+        {CORE_LIFTS.map(l => <LiftRow key={l.key} lift={l} />)}
+        <div className="text-[10px] uppercase tracking-widest text-neutral-500 pt-2">Autres</div>
+        {EXTRA_LIFTS.filter(l => current[l.key] || inputs[l.key] !== undefined).map(l => <LiftRow key={l.key} lift={l} />)}
+        {customKeys.map(k => <LiftRow key={k} lift={{ key: k, label: k.replaceAll('_', ' '), emoji: '🏋️' }} />)}
+        <div className="flex gap-2 pt-1">
+          <Select onValueChange={(v) => setInputs(i => ({ ...i, [v]: '' }))}>
+            <SelectTrigger className="flex-1 h-8 bg-neutral-900 border-neutral-800 text-xs"><SelectValue placeholder="+ Ajouter un exercice standard" /></SelectTrigger>
+            <SelectContent>
+              {EXTRA_LIFTS.filter(l => current[l.key] === undefined && inputs[l.key] === undefined).map(l => (
+                <SelectItem key={l.key} value={l.key}>{l.emoji} {l.label}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Button size="sm" variant="outline" onClick={() => setAddingCustom(!addingCustom)} className="h-8 border-violet-500/40 text-xs">+ Custom</Button>
+        </div>
+        {addingCustom && (
+          <div className="flex gap-2">
+            <Input placeholder="Nom de l'exercice" value={customName} onChange={(e) => setCustomName(e.target.value)} className="h-8 bg-neutral-900 border-neutral-800 text-xs" />
+            <Button size="sm" onClick={addCustom} className="h-8 bg-violet-500 hover:bg-violet-600 text-xs">Ajouter</Button>
+          </div>
+        )}
+      </CardContent>
+    </Card>
   )
 }
 
@@ -707,7 +854,7 @@ function SessionStatusButtons({ userId, sport, latestHealth, recentWorkouts, onD
   )
 }
 
-function ProgramCard({ userId, sport, latestHealth, profile = null, recentWorkouts = [], initialProgram = null, onNewProgram }) {
+function ProgramCard({ userId, sport, latestHealth, profile = null, oneRm = {}, recentWorkouts = [], initialProgram = null, onNewProgram }) {
   const supabase = getSupabaseBrowser()
   const [loading, setLoading] = useState(false)
   const [program, setProgram] = useState(initialProgram)
@@ -728,6 +875,7 @@ function ProgramCard({ userId, sport, latestHealth, profile = null, recentWorkou
         poids_kg: profile?.poids_kg || null,
         taille_cm: profile?.taille_cm || null,
         club_schedule: profile?.club_schedule || [],
+        one_rm: oneRm || {},
         hrv: latestHealth?.hrv ?? null,
         sleep_hours: latestHealth?.sleep_hours ?? null,
         recovery_score: latestHealth?.recovery_score ?? null,
@@ -1970,6 +2118,7 @@ function Dashboard({ user, onSignOut }) {
   const supabase = getSupabaseBrowser()
   const [sport, setSport] = useState('MMA')
   const [profile, setProfile] = useState(null)
+  const [oneRmMap, setOneRmMap] = useState({})
   const [latestHealth, setLatestHealth] = useState(null)
   const [lastProgram, setLastProgram] = useState(null)
   const [recentWorkouts, setRecentWorkouts] = useState([])
@@ -2069,7 +2218,8 @@ function Dashboard({ user, onSignOut }) {
             <WeekStrip userId={user.id} sport={sport} />
             <FormScoreCard latestHealth={latestHealth} />
             <HealthCard userId={user.id} latest={latestHealth} onSaved={setLatestHealth} />
-            <ProgramCard userId={user.id} sport={sport} latestHealth={latestHealth} profile={profile} recentWorkouts={recentWorkouts} initialProgram={lastProgram} onNewProgram={setLastProgram} />
+            <ProgramCard userId={user.id} sport={sport} latestHealth={latestHealth} profile={profile} oneRm={oneRmMap} recentWorkouts={recentWorkouts} initialProgram={lastProgram} onNewProgram={setLastProgram} />
+            <OneRmCard userId={user.id} onChange={setOneRmMap} />
             <NutritionCard userId={user.id} />
           </TabsContent>
 
