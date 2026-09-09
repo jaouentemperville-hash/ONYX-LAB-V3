@@ -16,7 +16,7 @@ import {
   Activity, Flame, Mic, MicOff, Sparkles, Loader2, LogOut, Dumbbell,
   Link2, HeartPulse, Moon, Zap, ShieldAlert, ChevronRight, Play, Trash2, ClipboardList,
   Bell, BellRing, Image as ImageIcon, Volume2, VolumeX, History, TrendingUp, Upload,
-  Utensils, Apple, Plus, Gauge,
+  Utensils, Apple, Plus, Gauge, Calendar, CalendarDays,
 } from 'lucide-react'
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts'
 
@@ -1215,6 +1215,115 @@ function NutritionWeekly({ userId, sport }) {
   )
 }
 
+function WeekPlanCard({ userId, sport, latestHealth, recentWorkouts = [] }) {
+  const supabase = getSupabaseBrowser()
+  const [loading, setLoading] = useState(false)
+  const [plan, setPlan] = useState(null)
+  const [goals, setGoals] = useState('')
+
+  useEffect(() => {
+    (async () => {
+      const today = new Date().toISOString().slice(0, 10)
+      const { data } = await supabase.from('workouts').select('*').eq('user_id', userId).eq('type_seance', 'week_plan').gte('date', today).order('created_at', { ascending: false }).limit(1)
+      if (data?.[0]?.program_json) setPlan(data[0].program_json)
+    })()
+  }, [userId, supabase])
+
+  async function generate() {
+    setLoading(true)
+    try {
+      const body = {
+        sport, level: 'intermédiaire', goals,
+        hrv: latestHealth?.hrv, sleep_hours: latestHealth?.sleep_hours,
+        recovery_score: latestHealth?.recovery_score, fatigue: latestHealth?.fatigue,
+        recent_sessions: recentWorkouts.slice(0, 5).map(w => ({
+          date: w.date, type: w.type_seance,
+          intensite: w.program_json?.intensite, focus: w.program_json?.focus,
+        })),
+      }
+      const res = await fetch('/api/coach/week', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.detail || data.error)
+      setPlan(data.plan)
+      // Save under a special row
+      await supabase.from('workouts').insert({
+        user_id: userId, date: new Date().toISOString().slice(0, 10),
+        sport, type_seance: 'week_plan', program_json: data.plan, status: 'planifie',
+      })
+      toast.success('Ta semaine ONYX est prête 📅')
+    } catch (err) {
+      toast.error(err.message)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const dayColor = (type) => {
+    if (type === 'repos_complet') return { bg: 'from-neutral-800 to-neutral-900', text: 'text-neutral-400', label: '💤' }
+    if (type === 'repos_actif') return { bg: 'from-blue-900/70 to-blue-950/70', text: 'text-blue-200', label: '🧘' }
+    return { bg: 'from-violet-700 to-fuchsia-700', text: 'text-white', label: '⚡' }
+  }
+
+  return (
+    <Card className="bg-gradient-to-br from-neutral-900 to-violet-950/20 border-violet-900/40">
+      <CardHeader>
+        <div className="flex items-center gap-2">
+          <CalendarDays className="h-5 w-5 text-violet-400" />
+          <CardTitle className="text-base">Semaine ONYX</CardTitle>
+        </div>
+        <CardDescription>7 jours planifiés par l&apos;IA — séances & repos équilibrés</CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        <div className="space-y-1">
+          <Label className="text-xs text-neutral-400">Objectif de la semaine (optionnel)</Label>
+          <Input value={goals} onChange={(e) => setGoals(e.target.value)} placeholder="Ex: préparation combat dans 6 semaines" className="bg-neutral-950/80 border-neutral-800 text-xs" />
+        </div>
+        <Button onClick={generate} disabled={loading} className="w-full bg-gradient-to-r from-violet-500 to-fuchsia-500 hover:from-violet-600 hover:to-fuchsia-600 font-bold">
+          {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <><Sparkles className="h-4 w-4 mr-2" /> {plan ? 'Regénérer la semaine' : 'Générer ma semaine'}</>}
+        </Button>
+
+        {plan?.objectif_semaine && (
+          <div className="p-3 bg-violet-500/10 border border-violet-500/30 rounded-lg text-xs text-violet-200 italic">🎯 {plan.objectif_semaine}</div>
+        )}
+
+        {plan?.week?.length > 0 && (
+          <div className="grid grid-cols-2 gap-2">
+            {plan.week.map((d, i) => {
+              const c = dayColor(d.type)
+              const isToday = d.date === new Date().toISOString().slice(0, 10)
+              return (
+                <div key={i} className={`bg-gradient-to-br ${c.bg} rounded-lg p-2.5 border ${isToday ? 'border-violet-400 ring-2 ring-violet-500/50' : 'border-neutral-800'} relative`}>
+                  {isToday && <div className="absolute top-1 right-1 text-[9px] uppercase tracking-widest text-violet-200 font-bold">AUJ.</div>}
+                  <div className="flex items-center gap-1.5 mb-1">
+                    <span className="text-lg leading-none">{c.label}</span>
+                    <div>
+                      <div className={`text-[10px] font-bold ${c.text} opacity-80`}>{d.jour}</div>
+                      <div className={`text-[10px] ${c.text} opacity-60`}>{new Date(d.date).toLocaleDateString('fr-FR', { day: '2-digit', month: 'short' })}</div>
+                    </div>
+                  </div>
+                  <div className={`text-xs font-semibold ${c.text} leading-tight line-clamp-2`}>{d.focus}</div>
+                  <div className="flex items-center gap-1 mt-1.5 flex-wrap">
+                    {d.intensite && <span className={`text-[9px] px-1.5 py-0.5 rounded bg-black/30 ${c.text} uppercase`}>{d.intensite}</span>}
+                    {d.duree_minutes && <span className={`text-[9px] px-1.5 py-0.5 rounded bg-black/30 ${c.text}`}>⏱ {d.duree_minutes}m</span>}
+                  </div>
+                  {d.exercices_cles?.length > 0 && (
+                    <div className={`mt-1 text-[9px] ${c.text} opacity-70 line-clamp-2`}>
+                      {d.exercices_cles.slice(0, 3).join(' · ')}
+                    </div>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  )
+}
+
 function Dashboard({ user, onSignOut }) {
   const supabase = getSupabaseBrowser()
   const [sport, setSport] = useState('MMA')
@@ -1303,6 +1412,7 @@ function Dashboard({ user, onSignOut }) {
           </TabsContent>
 
           <TabsContent value="history" className="space-y-4 mt-0">
+            <WeekPlanCard userId={user.id} sport={sport} latestHealth={latestHealth} recentWorkouts={recentWorkouts} />
             <TimelineTab userId={user.id} />
             <NutritionWeekly userId={user.id} sport={sport} />
           </TabsContent>

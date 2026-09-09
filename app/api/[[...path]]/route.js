@@ -94,6 +94,67 @@ Réponds STRICTEMENT au format JSON:
     }
 
     // ==============================
+    // Weekly plan (7 upcoming days) — AI decides sessions/rest
+    // ==============================
+    if (route === '/coach/week' && method === 'POST') {
+      const body = await request.json().catch(() => ({}))
+      const {
+        sport = 'MMA', goals = '', level = 'intermédiaire',
+        hrv = null, sleep_hours = null, recovery_score = null, fatigue = null,
+        recent_sessions = [],
+      } = body
+
+      // Compute next 7 dates
+      const dates = []
+      for (let i = 0; i < 7; i++) {
+        const d = new Date(); d.setDate(d.getDate() + i)
+        dates.push(d.toISOString().slice(0, 10))
+      }
+
+      const system = `Tu es un coach ELITE (athlétisation, MMA, No-Gi).
+Tu conçois un PLAN HEBDOMADAIRE équilibré pour un athlète:
+- Alterner intensités fortes / modérées / repos actif / repos complet
+- Cibler différents systèmes (force, puissance, capacité aérobie, technique, mobilité)
+- Prévoir 1-2 jours de repos par semaine minimum
+- Adapter le volume au niveau et à la récupération actuelle
+Tu réponds STRICTEMENT en JSON français, sans markdown.`
+
+      const prompt = `Génère le PLAN 7 JOURS pour cet athlète.
+
+SPORT: ${sport}
+NIVEAU: ${level}
+OBJECTIFS: ${goals || 'polyvalence combat'}
+
+ÉTAT ACTUEL:
+- HRV: ${hrv ?? 'nr'} · Sommeil: ${sleep_hours ?? 'nr'}h · Récup: ${recovery_score ?? 'nr'}/100 · Fatigue: ${fatigue ?? 'nr'}/10
+
+DERNIÈRES SÉANCES (contexte): ${JSON.stringify(recent_sessions).slice(0, 800)}
+
+DATES À PLANIFIER (dans l'ordre): ${JSON.stringify(dates)}
+
+Réponds STRICTEMENT en JSON:
+{
+  "objectif_semaine": "1-2 phrases sur le focus de la semaine",
+  "week": [
+    {
+      "date": "YYYY-MM-DD",
+      "jour": "Lun|Mar|Mer|Jeu|Ven|Sam|Dim",
+      "type": "seance|repos_actif|repos_complet",
+      "intensite": "légère|modérée|forte|repos",
+      "focus": "titre court (5-8 mots)",
+      "duree_minutes": 60,
+      "exercices_cles": ["exercice 1", "exercice 2", "exercice 3"],
+      "note": "1 phrase de contexte"
+    }
+  ]
+}`
+
+      const raw = await chat({ system, prompt })
+      const json = extractJson(raw)
+      return cors(NextResponse.json({ plan: json || { raw }, raw }))
+    }
+
+    // ==============================
     // Post-session intelligent feedback (RPA)
     // ==============================
     if (route === '/coach/feedback' && method === 'POST') {
