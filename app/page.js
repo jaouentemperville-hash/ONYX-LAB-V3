@@ -15,7 +15,9 @@ import { toast } from 'sonner'
 import {
   Activity, Flame, Mic, MicOff, Sparkles, Loader2, LogOut, Dumbbell,
   Link2, HeartPulse, Moon, Zap, ShieldAlert, ChevronRight, Play, Trash2, ClipboardList,
+  Bell, BellRing, Image as ImageIcon, Volume2, VolumeX, History, TrendingUp, Upload,
 } from 'lucide-react'
+import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts'
 
 const SPORTS = ['MMA', 'Grappling No-Gi', 'Athlétisation', 'Boxe', 'Muay Thai']
 
@@ -558,6 +560,354 @@ function ImportView({ a }) {
   )
 }
 
+function ReminderBell() {
+  const [enabled, setEnabled] = useState(false)
+  const [time, setTime] = useState('08:00')
+  const [open, setOpen] = useState(false)
+
+  useEffect(() => {
+    try {
+      const s = JSON.parse(localStorage.getItem('coachReminder') || '{}')
+      if (s.enabled) setEnabled(true)
+      if (s.time) setTime(s.time)
+    } catch {}
+  }, [])
+
+  useEffect(() => {
+    if (!enabled) return
+    const interval = setInterval(() => {
+      const now = new Date()
+      const hh = String(now.getHours()).padStart(2, '0')
+      const mm = String(now.getMinutes()).padStart(2, '0')
+      const today = now.toISOString().slice(0, 10)
+      const last = localStorage.getItem('coachReminder_last')
+      if (`${hh}:${mm}` === time && last !== today) {
+        if (typeof Notification !== 'undefined' && Notification.permission === 'granted') {
+          new Notification('🔥 Coach IA', { body: 'C\'est l\'heure de saisir ta forme du jour et de recevoir ton programme.', icon: '/icon-192.png' })
+          localStorage.setItem('coachReminder_last', today)
+        }
+      }
+    }, 30000)
+    return () => clearInterval(interval)
+  }, [enabled, time])
+
+  async function toggle() {
+    if (!enabled) {
+      if (typeof Notification === 'undefined') { toast.error('Notifications non supportées'); return }
+      const perm = await Notification.requestPermission()
+      if (perm !== 'granted') { toast.error('Permission refusée'); return }
+      const next = { enabled: true, time }
+      localStorage.setItem('coachReminder', JSON.stringify(next))
+      setEnabled(true)
+      toast.success(`Rappel activé pour ${time}`)
+    } else {
+      localStorage.setItem('coachReminder', JSON.stringify({ enabled: false, time }))
+      setEnabled(false)
+      toast.success('Rappel désactivé')
+    }
+  }
+
+  function updateTime(v) {
+    setTime(v)
+    if (enabled) localStorage.setItem('coachReminder', JSON.stringify({ enabled: true, time: v }))
+  }
+
+  return (
+    <div className="relative">
+      <Button variant="ghost" size="icon" onClick={() => setOpen(!open)} className="h-9 w-9 relative">
+        {enabled ? <BellRing className="h-4 w-4 text-orange-400" /> : <Bell className="h-4 w-4" />}
+        {enabled && <span className="absolute top-1 right-1 h-2 w-2 rounded-full bg-orange-400 animate-pulse" />}
+      </Button>
+      {open && (
+        <div className="absolute right-0 top-11 z-50 w-64 rounded-xl border border-neutral-800 bg-neutral-900 shadow-2xl p-4 space-y-3">
+          <div className="text-xs uppercase text-neutral-400 tracking-widest">Rappel quotidien</div>
+          <p className="text-xs text-neutral-400">Une notification t&apos;invite à saisir ta forme du matin.</p>
+          <div className="space-y-1">
+            <Label className="text-xs">Heure</Label>
+            <Input type="time" value={time} onChange={(e) => updateTime(e.target.value)} className="bg-neutral-950 border-neutral-800" />
+          </div>
+          <Button onClick={toggle} className={`w-full ${enabled ? 'bg-neutral-800 hover:bg-neutral-700' : 'bg-gradient-to-r from-red-500 to-orange-500'}`}>
+            {enabled ? 'Désactiver' : 'Activer les rappels'}
+          </Button>
+          <p className="text-[10px] text-neutral-500">Fonctionne quand l&apos;app est ouverte (onglet actif ou PWA installée).</p>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function speakText(text) {
+  if (typeof window === 'undefined' || !window.speechSynthesis) return toast.error('TTS non supporté')
+  window.speechSynthesis.cancel()
+  const u = new SpeechSynthesisUtterance(text)
+  u.lang = 'fr-FR'
+  u.rate = 1.05
+  window.speechSynthesis.speak(u)
+}
+
+function VocalHistoryList({ userId }) {
+  const supabase = getSupabaseBrowser()
+  const [items, setItems] = useState([])
+  const [playing, setPlaying] = useState(null)
+
+  useEffect(() => {
+    (async () => {
+      const { data } = await supabase.from('session_feedback').select('*').eq('user_id', userId).order('created_at', { ascending: false }).limit(10)
+      setItems(data || [])
+    })()
+  }, [userId, supabase])
+
+  function play(item) {
+    if (playing === item.id) {
+      window.speechSynthesis?.cancel()
+      setPlaying(null)
+      return
+    }
+    speakText(item.transcript || '')
+    setPlaying(item.id)
+    const u = new SpeechSynthesisUtterance('')
+    setTimeout(() => setPlaying(null), Math.max(3000, (item.transcript?.length || 0) * 60))
+  }
+
+  if (!items.length) return null
+  return (
+    <Card className="bg-neutral-900/60 border-neutral-800">
+      <CardHeader className="pb-2">
+        <div className="flex items-center gap-2">
+          <History className="h-4 w-4 text-neutral-400" />
+          <CardTitle className="text-sm">Ressentis récents</CardTitle>
+        </div>
+      </CardHeader>
+      <CardContent className="space-y-2">
+        {items.map(it => (
+          <div key={it.id} className="flex items-start gap-2 p-2 rounded-lg bg-neutral-950/50 border border-neutral-800">
+            <Button variant="ghost" size="icon" className="h-8 w-8 shrink-0" onClick={() => play(it)}>
+              {playing === it.id ? <VolumeX className="h-4 w-4 text-red-400" /> : <Volume2 className="h-4 w-4 text-orange-400" />}
+            </Button>
+            <div className="flex-1 min-w-0">
+              <div className="text-[10px] text-neutral-500">{new Date(it.created_at).toLocaleString('fr-FR', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}</div>
+              <div className="text-xs text-neutral-300 line-clamp-2">{it.transcript}</div>
+              {it.ai_analysis?.charge_percue && <Badge className="mt-1 bg-red-500/20 text-red-300 border-red-500/40 text-[10px]">Charge: {it.ai_analysis.charge_percue}</Badge>}
+            </div>
+          </div>
+        ))}
+      </CardContent>
+    </Card>
+  )
+}
+
+function TimelineTab({ userId }) {
+  const supabase = getSupabaseBrowser()
+  const [health, setHealth] = useState([])
+  const [workouts, setWorkouts] = useState([])
+  const [feedbacks, setFeedbacks] = useState([])
+
+  useEffect(() => {
+    (async () => {
+      const [h, w, f] = await Promise.all([
+        supabase.from('health_data').select('*').eq('user_id', userId).order('date', { ascending: false }).limit(7),
+        supabase.from('workouts').select('*').eq('user_id', userId).order('date', { ascending: false }).limit(7),
+        supabase.from('session_feedback').select('*').eq('user_id', userId).order('created_at', { ascending: false }).limit(7),
+      ])
+      setHealth((h.data || []).reverse())
+      setWorkouts(w.data || [])
+      setFeedbacks(f.data || [])
+    })()
+  }, [userId, supabase])
+
+  const chartData = health.map(h => ({
+    date: new Date(h.date).toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit' }),
+    Fatigue: h.fatigue ?? null,
+    HRV: h.hrv ?? null,
+    Récup: h.recovery_score ?? null,
+    Sommeil: h.sleep_hours ?? null,
+  }))
+
+  return (
+    <div className="space-y-4">
+      <Card className="bg-gradient-to-br from-neutral-900 to-neutral-900/60 border-neutral-800">
+        <CardHeader>
+          <div className="flex items-center gap-2">
+            <TrendingUp className="h-5 w-5 text-orange-400" />
+            <CardTitle className="text-base">Tendances 7 derniers jours</CardTitle>
+          </div>
+          <CardDescription>Fatigue, HRV, récupération</CardDescription>
+        </CardHeader>
+        <CardContent>
+          {chartData.length === 0 ? (
+            <p className="text-xs text-neutral-500 text-center py-6">Aucune donnée. Enregistre ta forme du jour pour voir les tendances.</p>
+          ) : (
+            <div className="h-56">
+              <ResponsiveContainer width="100%" height="100%">
+                <LineChart data={chartData} margin={{ top: 5, right: 10, left: -20, bottom: 0 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#262626" />
+                  <XAxis dataKey="date" tick={{ fill: '#9ca3af', fontSize: 10 }} />
+                  <YAxis tick={{ fill: '#9ca3af', fontSize: 10 }} />
+                  <Tooltip contentStyle={{ background: '#0a0a0a', border: '1px solid #262626', borderRadius: 8, fontSize: 12 }} />
+                  <Line type="monotone" dataKey="Fatigue" stroke="#ef4444" strokeWidth={2} dot={{ r: 3 }} />
+                  <Line type="monotone" dataKey="HRV" stroke="#f97316" strokeWidth={2} dot={{ r: 3 }} />
+                  <Line type="monotone" dataKey="Récup" stroke="#22c55e" strokeWidth={2} dot={{ r: 3 }} />
+                  <Line type="monotone" dataKey="Sommeil" stroke="#3b82f6" strokeWidth={2} dot={{ r: 3 }} />
+                </LineChart>
+              </ResponsiveContainer>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card className="bg-neutral-900/60 border-neutral-800">
+        <CardHeader className="pb-2">
+          <div className="flex items-center gap-2">
+            <Dumbbell className="h-4 w-4 text-orange-400" />
+            <CardTitle className="text-sm">Dernières séances</CardTitle>
+          </div>
+        </CardHeader>
+        <CardContent className="space-y-2">
+          {workouts.length === 0 && <p className="text-xs text-neutral-500">Aucune séance générée.</p>}
+          {workouts.map(w => (
+            <div key={w.id} className="p-2 rounded-lg bg-neutral-950/50 border border-neutral-800">
+              <div className="flex items-center justify-between">
+                <div className="text-xs font-semibold text-neutral-200">{w.program_json?.focus || w.type_seance || 'Séance'}</div>
+                <div className="text-[10px] text-neutral-500">{new Date(w.date).toLocaleDateString('fr-FR', { day: '2-digit', month: 'short' })}</div>
+              </div>
+              <div className="flex gap-1.5 mt-1 flex-wrap">
+                {w.program_json?.intensite && <Badge className="bg-red-500/20 text-red-300 border-red-500/40 text-[10px]">{w.program_json.intensite}</Badge>}
+                {w.program_json?.duree_minutes && <Badge variant="secondary" className="bg-neutral-800 text-[10px]">{w.program_json.duree_minutes} min</Badge>}
+                <Badge variant="outline" className="border-neutral-700 text-neutral-400 text-[10px]">{w.sport}</Badge>
+              </div>
+            </div>
+          ))}
+        </CardContent>
+      </Card>
+
+      <VocalHistoryList userId={userId} />
+    </div>
+  )
+}
+
+function ImageUploadBlock({ userId, sport }) {
+  const supabase = getSupabaseBrowser()
+  const [loading, setLoading] = useState(false)
+  const [preview, setPreview] = useState(null)
+  const [analysis, setAnalysis] = useState(null)
+  const [ctx, setCtx] = useState('physique')
+  const [goals, setGoals] = useState('')
+  const fileRef = useRef(null)
+
+  async function pick(file) {
+    if (!file) return
+    if (file.size > 5 * 1024 * 1024) return toast.error('Max 5 Mo')
+    const reader = new FileReader()
+    reader.onload = () => setPreview({ data: reader.result, mime: file.type, name: file.name })
+    reader.readAsDataURL(file)
+  }
+
+  async function analyze() {
+    if (!preview) return toast.error('Choisis une image')
+    setLoading(true)
+    try {
+      const base64 = preview.data.split(',')[1]
+      const res = await fetch('/api/analyze/image', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ imageBase64: base64, mimeType: preview.mime, context: ctx, sport, goals }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.detail || data.error)
+      setAnalysis(data.analysis)
+      await supabase.from('imports').insert({
+        user_id: userId, source_type: `image-${ctx}`, description: goals || preview.name, ai_analysis: data.analysis,
+      })
+      toast.success('Image analysée par Gemini Vision')
+    } catch (err) {
+      toast.error(err.message)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  return (
+    <Card className="bg-gradient-to-br from-neutral-900 to-orange-950/10 border-neutral-800">
+      <CardHeader className="pb-3">
+        <div className="flex items-center gap-2">
+          <ImageIcon className="h-5 w-5 text-orange-400" />
+          <CardTitle className="text-base">Analyse d&apos;image</CardTitle>
+        </div>
+        <CardDescription>Upload une photo physique ou posture d&apos;exercice</CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        <div className="grid grid-cols-2 gap-2">
+          <div className="space-y-1">
+            <Label className="text-xs text-neutral-400">Type d&apos;analyse</Label>
+            <Select value={ctx} onValueChange={setCtx}>
+              <SelectTrigger className="bg-neutral-950/80 border-neutral-800"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="physique">Physique / composition</SelectItem>
+                <SelectItem value="posture">Posture / technique</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-1">
+            <Label className="text-xs text-neutral-400">Objectif (optionnel)</Label>
+            <Input value={goals} onChange={(e) => setGoals(e.target.value)} placeholder="Ex: prise de masse sèche" className="bg-neutral-950/80 border-neutral-800" />
+          </div>
+        </div>
+        <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={(e) => pick(e.target.files?.[0])} />
+        <Button variant="outline" onClick={() => fileRef.current?.click()} className="w-full border-neutral-700 hover:bg-neutral-800">
+          <Upload className="h-4 w-4 mr-2" /> {preview ? 'Changer l\'image' : 'Choisir une image'}
+        </Button>
+        {preview && (
+          <div className="relative rounded-lg overflow-hidden border border-neutral-800">
+            <img src={preview.data} alt="preview" className="w-full max-h-64 object-cover" />
+          </div>
+        )}
+        <Button onClick={analyze} disabled={loading || !preview} className="w-full bg-gradient-to-r from-orange-500 to-red-500 hover:from-orange-600 hover:to-red-600 font-bold">
+          {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <><Sparkles className="h-4 w-4 mr-2" /> Analyser avec Gemini Vision</>}
+        </Button>
+        {analysis && <ImageAnalysisView a={analysis} ctx={ctx} />}
+      </CardContent>
+    </Card>
+  )
+}
+
+function ImageAnalysisView({ a, ctx }) {
+  if (a?.raw) return <pre className="text-xs text-neutral-300 whitespace-pre-wrap p-3 bg-neutral-950 rounded border border-neutral-800">{a.raw}</pre>
+  if (ctx === 'physique') {
+    return (
+      <div className="space-y-3 text-sm">
+        {a.estimation_composition && (
+          <div className="grid grid-cols-3 gap-2 text-center">
+            <div className="p-2 bg-neutral-950 rounded border border-neutral-800"><div className="text-[10px] text-neutral-500 uppercase">Muscle</div><div className="text-xs font-semibold text-orange-300 capitalize">{a.estimation_composition.masse_musculaire}</div></div>
+            <div className="p-2 bg-neutral-950 rounded border border-neutral-800"><div className="text-[10px] text-neutral-500 uppercase">Gras</div><div className="text-xs font-semibold text-red-300 capitalize">{a.estimation_composition.gras_visible}</div></div>
+            <div className="p-2 bg-neutral-950 rounded border border-neutral-800"><div className="text-[10px] text-neutral-500 uppercase">Symétrie</div><div className="text-xs font-semibold text-neutral-200 capitalize">{a.estimation_composition.symetrie}</div></div>
+          </div>
+        )}
+        {a.atouts_visibles?.length > 0 && <Block title="Atouts" items={a.atouts_visibles} />}
+        {a.zones_a_developper?.length > 0 && <Block title="Zones à développer" items={a.zones_a_developper} />}
+        {a.plan_4_semaines && (
+          <div className="border border-orange-500/30 rounded-lg p-3 bg-orange-500/5">
+            <div className="text-xs uppercase text-orange-300 tracking-widest mb-1">Plan 4 semaines</div>
+            <div className="text-xs text-neutral-200 font-semibold">{a.plan_4_semaines.focus_principal}</div>
+            <div className="text-xs text-neutral-400 mt-1">{a.plan_4_semaines.seances_par_semaine} séances/sem · Cardio: {a.plan_4_semaines.cardio}</div>
+          </div>
+        )}
+        {a.conseils_nutrition?.length > 0 && <Block title="Nutrition" items={a.conseils_nutrition} />}
+        {a.avertissement && <div className="text-[10px] text-neutral-500 italic">{a.avertissement}</div>}
+      </div>
+    )
+  }
+  return (
+    <div className="space-y-3 text-sm">
+      {a.exercice_identifie && <div className="font-bold text-orange-300">{a.exercice_identifie}</div>}
+      {a.alignement && <div className="text-xs text-neutral-300 italic">{a.alignement}</div>}
+      {a.erreurs_probables?.length > 0 && <Block title="Erreurs probables" items={a.erreurs_probables} />}
+      {a.corrections_prioritaires?.length > 0 && <Block title="Corrections" items={a.corrections_prioritaires} />}
+      {a.exercices_correctifs?.length > 0 && <Block title="Exercices correctifs" items={a.exercices_correctifs} />}
+      {a.avertissement && <div className="text-[10px] text-neutral-500 italic">{a.avertissement}</div>}
+    </div>
+  )
+}
+
 function Dashboard({ user, onSignOut }) {
   const supabase = getSupabaseBrowser()
   const [sport, setSport] = useState('MMA')
@@ -594,11 +944,12 @@ function Dashboard({ user, onSignOut }) {
               setSport(v)
               await supabase.from('profiles').upsert({ id: user.id, sport: v })
             }}>
-              <SelectTrigger className="w-32 h-9 bg-neutral-900 border-neutral-800 text-xs"><SelectValue /></SelectTrigger>
+              <SelectTrigger className="w-28 h-9 bg-neutral-900 border-neutral-800 text-xs"><SelectValue /></SelectTrigger>
               <SelectContent>
                 {SPORTS.map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}
               </SelectContent>
             </Select>
+            <ReminderBell />
             <Button variant="ghost" size="icon" onClick={onSignOut} className="h-9 w-9"><LogOut className="h-4 w-4" /></Button>
           </div>
         </div>
@@ -606,15 +957,18 @@ function Dashboard({ user, onSignOut }) {
 
       <main className="max-w-md mx-auto px-4 py-4">
         <Tabs defaultValue="today" className="w-full">
-          <TabsList className="grid grid-cols-3 bg-neutral-900 mb-4">
-            <TabsTrigger value="today" className="data-[state=active]:bg-red-500 data-[state=active]:text-white">
-              <Flame className="h-4 w-4 mr-1" /> Aujourd&apos;hui
+          <TabsList className="grid grid-cols-4 bg-neutral-900 mb-4">
+            <TabsTrigger value="today" className="data-[state=active]:bg-red-500 data-[state=active]:text-white text-xs">
+              <Flame className="h-3.5 w-3.5 mr-1" /> Jour
             </TabsTrigger>
-            <TabsTrigger value="rpa" className="data-[state=active]:bg-red-500 data-[state=active]:text-white">
-              <Mic className="h-4 w-4 mr-1" /> RPA
+            <TabsTrigger value="rpa" className="data-[state=active]:bg-red-500 data-[state=active]:text-white text-xs">
+              <Mic className="h-3.5 w-3.5 mr-1" /> RPA
             </TabsTrigger>
-            <TabsTrigger value="import" className="data-[state=active]:bg-red-500 data-[state=active]:text-white">
-              <Link2 className="h-4 w-4 mr-1" /> Import
+            <TabsTrigger value="import" className="data-[state=active]:bg-red-500 data-[state=active]:text-white text-xs">
+              <Link2 className="h-3.5 w-3.5 mr-1" /> Import
+            </TabsTrigger>
+            <TabsTrigger value="history" className="data-[state=active]:bg-red-500 data-[state=active]:text-white text-xs">
+              <History className="h-3.5 w-3.5 mr-1" /> Suivi
             </TabsTrigger>
           </TabsList>
 
@@ -625,10 +979,16 @@ function Dashboard({ user, onSignOut }) {
 
           <TabsContent value="rpa" className="space-y-4 mt-0">
             <VoiceFeedbackCard userId={user.id} lastProgram={lastProgram} sport={sport} />
+            <VocalHistoryList userId={user.id} />
           </TabsContent>
 
           <TabsContent value="import" className="space-y-4 mt-0">
             <ImportCard userId={user.id} sport={sport} />
+            <ImageUploadBlock userId={user.id} sport={sport} />
+          </TabsContent>
+
+          <TabsContent value="history" className="space-y-4 mt-0">
+            <TimelineTab userId={user.id} />
           </TabsContent>
         </Tabs>
       </main>

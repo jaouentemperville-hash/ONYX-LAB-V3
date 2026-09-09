@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server'
-import { chat, extractJson } from '@/lib/emergent'
+import { chat, chatVision, extractJson } from '@/lib/emergent'
 
 export const runtime = 'nodejs'
 
@@ -163,6 +163,59 @@ Réponds strictement en JSON:
 }`
 
       const raw = await chat({ system, prompt })
+      const json = extractJson(raw)
+      return cors(NextResponse.json({ analysis: json || { raw }, raw }))
+    }
+
+    // ==============================
+    // Analyze uploaded image (Gemini Vision) - body/physique/exercise form
+    // ==============================
+    if (route === '/analyze/image' && method === 'POST') {
+      const body = await request.json().catch(() => ({}))
+      const { imageBase64 = '', mimeType = 'image/jpeg', context = 'physique', sport = 'MMA', goals = '' } = body
+
+      if (!imageBase64) {
+        return cors(NextResponse.json({ error: 'imageBase64 required' }, { status: 400 }))
+      }
+
+      const system = `Tu es un préparateur physique expert en sports de combat (MMA, No-Gi).
+Tu analyses des images de physique/composition corporelle OU des postures d'exercices.
+Tu ne diagnostiques JAMAIS de blessure. Tu donnes une analyse visuelle prudente + un plan d'action.
+Tu réponds STRICTEMENT en JSON valide français.`
+
+      const isPhysique = context === 'physique'
+      const prompt = isPhysique
+        ? `Analyse ce PHYSIQUE pour un athlète de ${sport}.
+Objectifs déclarés: ${goals || 'polyvalence combat'}.
+
+Réponds strictement en JSON:
+{
+  "estimation_composition": {"masse_musculaire": "faible|moyenne|bonne|elevee", "gras_visible": "bas|moyen|eleve", "symetrie": "..."},
+  "atouts_visibles": ["..."],
+  "zones_a_developper": ["..."],
+  "plan_4_semaines": {
+    "focus_principal": "...",
+    "seances_par_semaine": 4,
+    "repartition": [{"jour": "L", "type": "..."}, {"jour": "Ma", "type": "..."}],
+    "priorites_musculaires": ["..."],
+    "cardio": "..."
+  },
+  "conseils_nutrition": ["..."],
+  "avertissement": "L'analyse d'une image ne remplace pas un bilan pro."
+}`
+        : `Analyse cette POSTURE / TECHNIQUE pour un athlète de ${sport}.
+
+Réponds strictement en JSON:
+{
+  "exercice_identifie": "...",
+  "alignement": "...",
+  "erreurs_probables": ["..."],
+  "corrections_prioritaires": ["..."],
+  "exercices_correctifs": ["..."],
+  "avertissement": "Une seule image ne permet pas de diagnostiquer une blessure."
+}`
+
+      const raw = await chatVision({ system, prompt, imageBase64, mimeType })
       const json = extractJson(raw)
       return cors(NextResponse.json({ analysis: json || { raw }, raw }))
     }
