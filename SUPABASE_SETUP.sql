@@ -160,3 +160,44 @@ create policy "meals_select_own" on public.meals for select to authenticated usi
 create policy "meals_insert_own" on public.meals for insert to authenticated with check ((select auth.uid()) = user_id);
 create policy "meals_update_own" on public.meals for update to authenticated using ((select auth.uid()) = user_id) with check ((select auth.uid()) = user_id);
 create policy "meals_delete_own" on public.meals for delete to authenticated using ((select auth.uid()) = user_id);
+
+-- =====================================================================
+-- v5: Apple Health Sync
+-- =====================================================================
+-- Add unique sync token to each profile
+alter table public.profiles add column if not exists sync_token uuid unique default gen_random_uuid();
+update public.profiles set sync_token = gen_random_uuid() where sync_token is null;
+
+-- Security-definer RPC that lets an Apple Shortcut push health data
+-- without requiring a Supabase session (the sync_token acts as the secret)
+create or replace function public.apple_health_sync(
+  p_token uuid,
+  p_sleep_hours numeric default null,
+  p_hrv numeric default null,
+  p_recovery_score numeric default null,
+  p_fatigue integer default null,
+  p_resting_hr numeric default null
+) returns jsonb
+language plpgsql
+security definer set search_path = public
+as $$
+declare
+  v_user_id uuid;
+  v_today date := current_date;
+begin
+  -- Find user by their sync token
+  select id into v_user_id from public.profiles where sync_token = p_token;
+  if v_user_id is null then
+    return jsonb_build_object('ok', false, 'error', 'invalid_token');
+  end if;
+
+  -- Upsert today's health data
+  delete from public.health_data where user_id = v_user_id and date = v_today;
+  insert into public.health_data (user_id, date, sleep_hours, hrv, recovery_score, fatigue, charge, notes)
+  values (v_user_id, v_today, p_sleep_hours, p_hrv, p_recovery_score, p_fatigue, p_resting_hr, 'Synchronisé depuis Apple Health');
+
+  return jsonb_build_object('ok', true, 'user_id', v_user_id, 'date', v_today);
+end;
+$$;
+
+grant execute on function public.apple_health_sync(uuid, numeric, numeric, numeric, integer, numeric) to anon, authenticated;

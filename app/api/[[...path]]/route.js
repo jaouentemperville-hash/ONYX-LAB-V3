@@ -25,6 +25,49 @@ async function handleRoute(request, { params }) {
     }
 
     // ==============================
+    // Apple Health Sync (via Apple Shortcut)
+    // Accepts POST body OR GET query params so Apple Shortcuts can use either.
+    // Body: { token, sleep_hours?, hrv?, recovery_score?, fatigue?, resting_hr? }
+    // ==============================
+    if (route === '/health/sync' && (method === 'POST' || method === 'GET')) {
+      let params = {}
+      if (method === 'POST') {
+        params = await request.json().catch(() => ({}))
+      } else {
+        const url = new URL(request.url)
+        params = Object.fromEntries(url.searchParams.entries())
+      }
+      const token = params.token || params.t
+      if (!token) return cors(NextResponse.json({ error: 'token required' }, { status: 400 }))
+
+      const num = (v) => (v === undefined || v === null || v === '' ? null : Number(v))
+      const payload = {
+        p_token: token,
+        p_sleep_hours: num(params.sleep_hours ?? params.sleep),
+        p_hrv: num(params.hrv),
+        p_recovery_score: num(params.recovery_score ?? params.recovery),
+        p_fatigue: num(params.fatigue) != null ? Math.round(num(params.fatigue)) : null,
+        p_resting_hr: num(params.resting_hr ?? params.hr),
+      }
+
+      const supaUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
+      const supaKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+      const res = await fetch(`${supaUrl}/rest/v1/rpc/apple_health_sync`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'apikey': supaKey,
+          'Authorization': `Bearer ${supaKey}`,
+        },
+        body: JSON.stringify(payload),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) return cors(NextResponse.json({ error: 'sync failed', detail: data }, { status: 500 }))
+      if (data?.ok === false) return cors(NextResponse.json({ error: data.error || 'invalid_token' }, { status: 401 }))
+      return cors(NextResponse.json({ ok: true, synced: payload, ...data }))
+    }
+
+    // ==============================
     // Generate today's training program
     // ==============================
     if (route === '/coach/program' && method === 'POST') {

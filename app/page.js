@@ -16,7 +16,7 @@ import {
   Activity, Flame, Mic, MicOff, Sparkles, Loader2, LogOut, Dumbbell,
   Link2, HeartPulse, Moon, Zap, ShieldAlert, ChevronRight, Play, Trash2, ClipboardList,
   Bell, BellRing, Image as ImageIcon, Volume2, VolumeX, History, TrendingUp, Upload,
-  Utensils, Apple, Plus, Gauge, Calendar, CalendarDays,
+  Utensils, Apple, Plus, Gauge, Calendar, CalendarDays, Smartphone, Copy, Check,
 } from 'lucide-react'
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts'
 
@@ -116,6 +116,119 @@ function AuthGate({ onAuthed }) {
   )
 }
 
+function AppleHealthSync({ userId, onSynced }) {
+  const supabase = getSupabaseBrowser()
+  const [token, setToken] = useState(null)
+  const [open, setOpen] = useState(false)
+  const [copied, setCopied] = useState(false)
+  const [testing, setTesting] = useState(false)
+
+  useEffect(() => {
+    (async () => {
+      const { data } = await supabase.from('profiles').select('sync_token').eq('id', userId).maybeSingle()
+      if (data?.sync_token) setToken(data.sync_token)
+    })()
+  }, [userId, supabase])
+
+  const baseUrl = typeof window !== 'undefined' ? window.location.origin : ''
+  const syncUrl = token ? `${baseUrl}/api/health/sync?token=${token}` : ''
+
+  async function copyUrl() {
+    if (!syncUrl) return
+    await navigator.clipboard.writeText(syncUrl)
+    setCopied(true)
+    toast.success('URL copiée')
+    setTimeout(() => setCopied(false), 2000)
+  }
+
+  async function testSync() {
+    if (!token) return
+    setTesting(true)
+    try {
+      const test = { token, sleep_hours: 7.5, hrv: 62, recovery_score: 74, fatigue: 4, resting_hr: 55 }
+      const res = await fetch('/api/health/sync', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(test),
+      })
+      const data = await res.json()
+      if (!res.ok || !data.ok) throw new Error(data.detail?.message || data.error || 'Sync KO')
+      toast.success('✅ Sync testée avec succès — données injectées')
+      onSynced?.()
+    } catch (err) {
+      toast.error(err.message)
+    } finally {
+      setTesting(false)
+    }
+  }
+
+  if (!token) return null
+
+  return (
+    <div className="border-t border-neutral-800 pt-3 mt-1">
+      <button
+        onClick={() => setOpen(!open)}
+        className="w-full flex items-center justify-between text-xs text-neutral-400 hover:text-neutral-200"
+      >
+        <span className="flex items-center gap-2">
+          <Smartphone className="h-3.5 w-3.5 text-fuchsia-400" />
+          🍎 Sync Apple Health (via Shortcut)
+        </span>
+        <ChevronRight className={`h-3.5 w-3.5 transition-transform ${open ? 'rotate-90' : ''}`} />
+      </button>
+
+      {open && (
+        <div className="mt-3 space-y-3 text-xs">
+          <div className="p-3 bg-fuchsia-500/10 border border-fuchsia-500/30 rounded-lg space-y-2">
+            <div className="font-semibold text-fuchsia-200">Ton URL de sync personnelle</div>
+            <div className="flex items-center gap-1">
+              <code className="flex-1 bg-neutral-950 border border-neutral-800 rounded px-2 py-1.5 text-[10px] text-neutral-300 break-all font-mono">{syncUrl}</code>
+              <Button variant="outline" size="icon" onClick={copyUrl} className="h-8 w-8 shrink-0 border-neutral-700">
+                {copied ? <Check className="h-3.5 w-3.5 text-green-400" /> : <Copy className="h-3.5 w-3.5" />}
+              </Button>
+            </div>
+            <p className="text-[10px] text-neutral-500">🔒 Cette URL est secrète — elle contient ton token unique.</p>
+          </div>
+
+          <div className="space-y-1.5">
+            <div className="font-semibold text-neutral-200">📱 Créer le Shortcut sur iPhone (5 min)</div>
+            <ol className="space-y-1.5 pl-4 list-decimal text-neutral-400 text-[11px] leading-relaxed">
+              <li>Ouvre l&apos;app <b>Raccourcis</b> (Shortcuts) → <b>+</b> → nouveau raccourci</li>
+              <li>Ajoute l&apos;action <b>&quot;Rechercher des échantillons de santé&quot;</b> → Type : <b>Sommeil</b> → Période : <b>Aujourd&apos;hui</b></li>
+              <li>Ajoute une variable <b>Nombre</b> avec la durée en heures (utilise <b>Calculer</b> pour convertir minutes → heures)</li>
+              <li>Répète pour <b>HRV (variabilité de fréquence cardiaque)</b> et <b>FC au repos</b></li>
+              <li>Ajoute l&apos;action <b>&quot;Obtenir le contenu de l&apos;URL&quot;</b> :
+                <ul className="pl-4 mt-1 list-disc space-y-0.5">
+                  <li>URL : colle l&apos;URL ci-dessus</li>
+                  <li>Méthode : <b>POST</b></li>
+                  <li>Corps de la requête : <b>JSON</b></li>
+                  <li>Ajoute les champs : <code className="text-fuchsia-300">sleep_hours</code>, <code className="text-fuchsia-300">hrv</code>, <code className="text-fuchsia-300">resting_hr</code> avec les variables Santé</li>
+                </ul>
+              </li>
+              <li>Optionnel : ajoute une <b>Automatisation</b> quotidienne à 7h du matin pour lancer le Shortcut auto</li>
+            </ol>
+          </div>
+
+          <div className="p-2.5 bg-neutral-950 border border-neutral-800 rounded-lg space-y-1">
+            <div className="text-[10px] uppercase text-neutral-500 tracking-widest">📋 Payload JSON attendu</div>
+            <pre className="text-[10px] text-neutral-400 overflow-x-auto">{`{
+  "sleep_hours": 7.5,   // Sommeil (h)
+  "hrv": 62,            // HRV (ms)
+  "resting_hr": 55,     // FC repos (bpm)
+  "recovery_score": 74, // optionnel
+  "fatigue": 4          // optionnel (1-10)
+}`}</pre>
+          </div>
+
+          <Button onClick={testSync} disabled={testing} variant="outline" className="w-full border-fuchsia-700/60 hover:bg-fuchsia-900/30 text-xs h-9">
+            {testing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <><Sparkles className="h-3.5 w-3.5 mr-1.5" /> Tester la sync (valeurs démo)</>}
+          </Button>
+        </div>
+      )}
+    </div>
+  )
+}
+
 function HealthCard({ userId, onSaved, latest }) {
   const supabase = getSupabaseBrowser()
   const [sleep, setSleep] = useState(latest?.sleep_hours ?? '')
@@ -176,6 +289,11 @@ function HealthCard({ userId, onSaved, latest }) {
         <Button onClick={save} disabled={saving} variant="outline" className="w-full border-neutral-700 hover:bg-neutral-800">
           {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Enregistrer la forme du jour'}
         </Button>
+        <AppleHealthSync userId={userId} onSynced={async () => {
+          const today = new Date().toISOString().slice(0, 10)
+          const { data } = await supabase.from('health_data').select('*').eq('user_id', userId).eq('date', today).order('created_at', { ascending: false }).limit(1)
+          if (data?.[0]) { onSaved?.(data[0]) }
+        }} />
       </CardContent>
     </Card>
   )
