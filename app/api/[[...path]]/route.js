@@ -44,40 +44,48 @@ async function handleRoute(request, { params }) {
 
       const system = `Tu es un coach sportif ELITE spécialisé en athlétisation, MMA et Grappling No-Gi.
 Tu construis des séances progressives, sécurisées, ultra-personnalisées et pragmatiques.
-Tu adaptes toujours l'intensité à la récupération (HRV, sommeil, fatigue déclarée).
-Tu réponds EXCLUSIVEMENT en français.
-Tu réponds STRICTEMENT en JSON valide, sans texte autour, sans markdown.`
+Tu adaptes l'intensité à la récupération (HRV, sommeil, fatigue).
+Tu prescris des JOURS DE REPOS si nécessaire (charge cumulée élevée, HRV bas, fatigue >7, récupération <40, ou après 2-3 jours d'intensité forte consécutifs).
+Tu inclus TOUJOURS des étirements ciblés dans la récupération.
+Tu réponds EXCLUSIVEMENT en français, STRICTEMENT en JSON valide sans markdown.`
 
-      const prompt = `Génère le PROGRAMME D'ENTRAINEMENT DU JOUR pour cet athlète.
+      const prompt = `Décide si aujourd'hui c'est SÉANCE ou REPOS pour cet athlète.
 
 SPORT: ${sport}
 NIVEAU: ${level}
-OBJECTIFS: ${goals || 'polyvalence'}
-ENVIES DU JOUR: ${envies || 'aucune préférence particulière'}
+OBJECTIFS: ${goals || 'polyvalence combat'}
+ENVIES DU JOUR: ${envies || 'aucune préférence'}
 ARTICULATIONS SENSIBLES: ${joints || 'aucune'}
 
-DONNEES DE RECUPERATION:
+DONNÉES DE RÉCUPÉRATION:
 - HRV: ${hrv ?? 'non renseigné'}
 - Sommeil (heures): ${sleep_hours ?? 'non renseigné'}
 - Score de récupération (0-100): ${recovery_score ?? 'non renseigné'}
 - Fatigue perçue (1-10): ${fatigue ?? 'non renseigné'}
 
-DERNIERES SEANCES: ${JSON.stringify(recent_sessions).slice(0, 800)}
+DERNIÈRES SÉANCES (les 7 derniers jours): ${JSON.stringify(recent_sessions).slice(0, 1500)}
 
-Adapte l'intensité: si récup faible (HRV bas, sommeil<6h, fatigue>7) fais une séance légère mobilité/technique.
-Si récup bonne (HRV bon, sommeil>7h, fatigue<5) fais une séance de forte intensité (force/HIIT ou sparring/travail spécifique).
+RÈGLES DE DÉCISION:
+- Si 2+ séances "forte" consécutives ou récupération <40 ou fatigue >7 → propose REPOS ACTIF (mobilité + étirements)
+- Si récup bonne (HRV bon, sommeil>7h, fatigue<5) et pas de séance dure hier → intensité FORTE
+- Sinon → intensité MODÉRÉE
+- Durée cohérente avec l'intensité (30-45 min repos actif / 60 min modéré / 75-90 min forte)
 
-Réponds STRICTEMENT au format JSON suivant:
+Réponds STRICTEMENT au format JSON:
 {
   "date": "YYYY-MM-DD",
-  "intensite": "légère|modérée|forte",
-  "focus": "...",
+  "type": "seance|repos_actif|repos_complet",
+  "intensite": "repos|légère|modérée|forte",
+  "focus": "titre court de la séance ou du repos",
   "duree_minutes": 60,
+  "justification_choix": "pourquoi séance/repos aujourd'hui (charge, HRV, fatigue)",
   "echauffement": [{"nom": "...", "duree": "5 min", "note": "..."}],
   "corps_seance": [{"bloc": "...", "exercices": [{"nom": "...", "series": "3", "reps": "8", "charge": "70%", "repos": "90s", "note": "..."}]}],
+  "etirements": [{"nom": "...", "duree": "30s x 2", "zone": "..."}],
   "retour_au_calme": [{"nom": "...", "duree": "..."}],
-  "conseil_coach": "une phrase motivante et technique",
-  "attention": "points de vigilance santé/articulations"
+  "conseil_coach": "phrase motivante et technique",
+  "attention": "points de vigilance santé/articulations",
+  "notification": "message court (max 80 car.) à envoyer en push aujourd'hui"
 }`
 
       const raw = await chat({ system, prompt })
@@ -244,6 +252,35 @@ Réponds strictement en JSON:
   "note": "assomption faite pour l'estimation"
 }`
       const raw = await chat({ system, prompt })
+      const json = extractJson(raw)
+      return cors(NextResponse.json({ estimate: json || { raw }, raw }))
+    }
+
+    // ==============================
+    // Estimate macros from meal PHOTO (Gemini Vision)
+    // ==============================
+    if (route === '/nutrition/photo' && method === 'POST') {
+      const body = await request.json().catch(() => ({}))
+      const { imageBase64 = '', mimeType = 'image/jpeg', hint = '' } = body
+      if (!imageBase64) return cors(NextResponse.json({ error: 'imageBase64 required' }, { status: 400 }))
+
+      const system = `Tu es un diététicien du sport. Tu identifies les aliments visibles sur une photo de repas et estimes les macronutriments TOTAUX de l'assiette.
+Sois RÉALISTE sur les portions visibles. Réponds STRICTEMENT en JSON.`
+      const prompt = `Analyse cette photo de repas.${hint ? ` Indication utilisateur: "${hint}".` : ''}
+
+Réponds strictement en JSON:
+{
+  "name": "résumé du repas",
+  "aliments_detectes": ["poulet", "riz", "légumes"],
+  "portion": "estimation totale en g ou description",
+  "calories": 650,
+  "protein": 45,
+  "carbs": 70,
+  "fat": 18,
+  "confiance": "faible|moyenne|elevee",
+  "note": "assomptions faites"
+}`
+      const raw = await chatVision({ system, prompt, imageBase64, mimeType })
       const json = extractJson(raw)
       return cors(NextResponse.json({ estimate: json || { raw }, raw }))
     }

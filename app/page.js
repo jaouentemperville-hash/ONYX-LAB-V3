@@ -60,15 +60,15 @@ function AuthGate({ onAuthed }) {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center p-4 bg-gradient-to-br from-neutral-950 via-neutral-900 to-red-950/40">
+    <div className="min-h-screen flex items-center justify-center p-4 bg-gradient-to-br from-neutral-950 via-neutral-900 to-violet-950/40">
       <div className="w-full max-w-md">
         <div className="text-center mb-8">
           <div className="inline-flex items-center gap-3 mb-3">
-            <div className="h-12 w-12 rounded-2xl bg-gradient-to-br from-red-500 to-orange-500 flex items-center justify-center shadow-lg shadow-red-500/30">
+            <div className="h-12 w-12 rounded-2xl bg-gradient-to-br from-violet-500 to-fuchsia-500 flex items-center justify-center shadow-lg shadow-violet-500/30">
               <Flame className="h-7 w-7 text-white" />
             </div>
             <div className="text-left">
-              <h1 className="text-2xl font-black tracking-tight">COACH IA</h1>
+              <h1 className="text-2xl font-black tracking-tight">ONYX 🧬</h1>
               <p className="text-xs text-neutral-400 uppercase tracking-widest">MMA — No-Gi — Athlé</p>
             </div>
           </div>
@@ -96,15 +96,15 @@ function AuthGate({ onAuthed }) {
                 <Label>Mot de passe</Label>
                 <Input type="password" required minLength={6} value={password} onChange={(e) => setPassword(e.target.value)} placeholder="••••••" />
               </div>
-              <Button type="submit" disabled={loading} className="w-full bg-gradient-to-r from-red-500 to-orange-500 hover:from-red-600 hover:to-orange-600 font-bold h-11">
+              <Button type="submit" disabled={loading} className="w-full bg-gradient-to-r from-violet-500 to-fuchsia-500 hover:from-violet-600 hover:to-fuchsia-600 font-bold h-11">
                 {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : (mode === 'login' ? 'Se connecter' : "S'inscrire")}
               </Button>
             </form>
             <div className="text-center mt-4 text-sm text-neutral-400">
               {mode === 'login' ? (
-                <>Pas de compte ? <button className="text-red-400 underline" onClick={() => setMode('signup')}>S&apos;inscrire</button></>
+                <>Pas de compte ? <button className="text-violet-400 underline" onClick={() => setMode('signup')}>S&apos;inscrire</button></>
               ) : (
-                <>Déjà inscrit ? <button className="text-red-400 underline" onClick={() => setMode('login')}>Se connecter</button></>
+                <>Déjà inscrit ? <button className="text-violet-400 underline" onClick={() => setMode('login')}>Se connecter</button></>
               )}
             </div>
           </CardContent>
@@ -160,7 +160,7 @@ function HealthCard({ userId, onSaved, latest }) {
       <CardHeader className="pb-3">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <HeartPulse className="h-5 w-5 text-red-400" />
+            <HeartPulse className="h-5 w-5 text-violet-400" />
             <CardTitle className="text-base">Forme du jour</CardTitle>
           </div>
           {latest && <Badge variant="secondary" className="bg-neutral-800 text-neutral-300">MAJ</Badge>}
@@ -190,7 +190,7 @@ function MetricInput({ icon, label, value, onChange, placeholder }) {
   )
 }
 
-function ProgramCard({ userId, sport, latestHealth, onNewProgram }) {
+function ProgramCard({ userId, sport, latestHealth, recentWorkouts = [], onNewProgram }) {
   const supabase = getSupabaseBrowser()
   const [loading, setLoading] = useState(false)
   const [program, setProgram] = useState(null)
@@ -208,6 +208,13 @@ function ProgramCard({ userId, sport, latestHealth, onNewProgram }) {
         sleep_hours: latestHealth?.sleep_hours ?? null,
         recovery_score: latestHealth?.recovery_score ?? null,
         fatigue: latestHealth?.fatigue ?? null,
+        recent_sessions: recentWorkouts.map(w => ({
+          date: w.date,
+          type: w.type_seance,
+          intensite: w.program_json?.intensite,
+          focus: w.program_json?.focus,
+          duree: w.program_json?.duree_minutes,
+        })),
       }
       const res = await fetch('/api/coach/program', {
         method: 'POST',
@@ -224,11 +231,22 @@ function ProgramCard({ userId, sport, latestHealth, onNewProgram }) {
         user_id: userId,
         date: new Date().toISOString().slice(0, 10),
         sport,
-        type_seance: prog?.focus || 'IA',
+        type_seance: prog?.type || prog?.focus || 'IA',
         program_json: prog,
         status: 'planifie',
       })
-      toast.success('Programme généré par Claude Sonnet 4.5 ⚡')
+      // Notification native
+      if (prog?.notification && typeof Notification !== 'undefined' && Notification.permission === 'granted') {
+        try {
+          const isRest = String(prog.type || '').startsWith('repos')
+          new Notification(isRest ? '🧘 ONYX · Repos aujourd\'hui' : '⚡ ONYX · Séance du jour', {
+            body: prog.notification,
+            icon: '/icon-192.png',
+            tag: 'onyx-program',
+          })
+        } catch {}
+      }
+      toast.success('Programme généré ⚡')
     } catch (err) {
       toast.error(err.message)
     } finally {
@@ -237,10 +255,10 @@ function ProgramCard({ userId, sport, latestHealth, onNewProgram }) {
   }
 
   return (
-    <Card className="bg-gradient-to-br from-red-950/30 via-neutral-900 to-neutral-900 border-red-900/40">
+    <Card className="bg-gradient-to-br from-violet-950/30 via-neutral-900 to-neutral-900 border-red-900/40">
       <CardHeader>
         <div className="flex items-center gap-2">
-          <Dumbbell className="h-5 w-5 text-orange-400" />
+          <Dumbbell className="h-5 w-5 text-fuchsia-400" />
           <CardTitle className="text-base">Programme du jour — {sport}</CardTitle>
         </div>
         <CardDescription>Adapté à ta récupération en temps réel</CardDescription>
@@ -256,7 +274,7 @@ function ProgramCard({ userId, sport, latestHealth, onNewProgram }) {
             <Input value={joints} onChange={(e) => setJoints(e.target.value)} placeholder="Ex: épaule droite" className="bg-neutral-950/80 border-neutral-800" />
           </div>
         </div>
-        <Button onClick={generate} disabled={loading} className="w-full bg-gradient-to-r from-red-500 to-orange-500 hover:from-red-600 hover:to-orange-600 font-bold h-12">
+        <Button onClick={generate} disabled={loading} className="w-full bg-gradient-to-r from-violet-500 to-fuchsia-500 hover:from-violet-600 hover:to-fuchsia-600 font-bold h-12">
           {loading ? <><Loader2 className="h-4 w-4 animate-spin mr-2" /> Le coach réfléchit...</> : <><Sparkles className="h-4 w-4 mr-2" /> Générer ma séance IA</>}
         </Button>
         {program && <ProgramView program={program} />}
@@ -271,20 +289,24 @@ function ProgramView({ program }) {
   return (
     <div className="space-y-3 text-sm">
       <div className="flex flex-wrap gap-2">
-        {program.intensite && <Badge className="bg-red-500/20 text-red-300 border-red-500/40">Intensité: {program.intensite}</Badge>}
-        {program.duree_minutes && <Badge variant="secondary" className="bg-neutral-800">{program.duree_minutes} min</Badge>}
+        {program.type && <Badge className={`${String(program.type).startsWith('repos') ? 'bg-blue-500/20 text-blue-300 border-blue-500/40' : 'bg-violet-500/20 text-violet-300 border-violet-500/40'}`}>{program.type === 'repos_actif' ? '🧘 Repos actif' : program.type === 'repos_complet' ? '💤 Repos complet' : '⚡ Séance'}</Badge>}
+        {program.intensite && <Badge className="bg-violet-500/20 text-violet-300 border-violet-500/40">Intensité: {program.intensite}</Badge>}
+        {program.duree_minutes && <Badge variant="secondary" className="bg-neutral-800">⏱ {program.duree_minutes} min</Badge>}
         {program.focus && <Badge variant="secondary" className="bg-neutral-800">{program.focus}</Badge>}
       </div>
+      {program.justification_choix && (
+        <div className="p-2 bg-neutral-950/50 border border-neutral-800 rounded text-[11px] text-neutral-400 italic">💡 {program.justification_choix}</div>
+      )}
       {program.echauffement?.length > 0 && (
         <Block title="Échauffement" items={program.echauffement.map(x => `${x.nom}${x.duree ? ` — ${x.duree}` : ''}${x.note ? ` (${x.note})` : ''}`)} />
       )}
       {program.corps_seance?.map((bloc, i) => (
         <div key={i} className="border border-neutral-800 rounded-lg p-3 bg-neutral-950/50">
-          <div className="font-semibold text-orange-300 text-sm mb-2">{bloc.bloc}</div>
+          <div className="font-semibold text-fuchsia-300 text-sm mb-2">{bloc.bloc}</div>
           <div className="space-y-1.5">
             {bloc.exercices?.map((ex, j) => (
               <div key={j} className="text-xs text-neutral-300 flex items-start gap-2">
-                <ChevronRight className="h-3 w-3 mt-0.5 text-red-400 shrink-0" />
+                <ChevronRight className="h-3 w-3 mt-0.5 text-violet-400 shrink-0" />
                 <div>
                   <span className="font-medium text-neutral-100">{ex.nom}</span>
                   <span className="text-neutral-400"> — {ex.series} × {ex.reps}{ex.charge ? ` @ ${ex.charge}` : ''}{ex.repos ? ` / repos ${ex.repos}` : ''}</span>
@@ -295,14 +317,24 @@ function ProgramView({ program }) {
           </div>
         </div>
       ))}
+      {program.etirements?.length > 0 && (
+        <div className="border border-violet-500/30 rounded-lg p-3 bg-violet-500/5">
+          <div className="text-xs uppercase text-violet-300 tracking-widest mb-2">🧘 Étirements</div>
+          <ul className="space-y-1 text-xs text-neutral-300">
+            {program.etirements.map((s, i) => (
+              <li key={i} className="flex gap-2"><span className="text-violet-400">•</span>{s.nom}{s.duree ? ` — ${s.duree}` : ''}{s.zone ? ` (${s.zone})` : ''}</li>
+            ))}
+          </ul>
+        </div>
+      )}
       {program.retour_au_calme?.length > 0 && (
         <Block title="Retour au calme" items={program.retour_au_calme.map(x => `${x.nom}${x.duree ? ` — ${x.duree}` : ''}`)} />
       )}
       {program.conseil_coach && (
-        <div className="p-3 bg-orange-500/10 border border-orange-500/30 rounded-lg text-orange-200 text-xs italic">“{program.conseil_coach}”</div>
+        <div className="p-3 bg-fuchsia-500/10 border border-fuchsia-500/30 rounded-lg text-orange-200 text-xs italic">“{program.conseil_coach}”</div>
       )}
       {program.attention && (
-        <div className="p-3 bg-red-500/10 border border-red-500/30 rounded-lg text-red-200 text-xs flex gap-2"><ShieldAlert className="h-4 w-4 shrink-0" /> {program.attention}</div>
+        <div className="p-3 bg-violet-500/10 border border-violet-500/30 rounded-lg text-red-200 text-xs flex gap-2"><ShieldAlert className="h-4 w-4 shrink-0" /> {program.attention}</div>
       )}
     </div>
   )
@@ -313,7 +345,7 @@ function Block({ title, items }) {
     <div>
       <div className="text-xs uppercase text-neutral-400 tracking-widest mb-1">{title}</div>
       <ul className="space-y-1 text-xs text-neutral-300">
-        {items.map((it, i) => <li key={i} className="flex gap-2"><span className="text-red-400">•</span>{it}</li>)}
+        {items.map((it, i) => <li key={i} className="flex gap-2"><span className="text-violet-400">•</span>{it}</li>)}
       </ul>
     </div>
   )
@@ -387,10 +419,10 @@ function VoiceFeedbackCard({ userId, lastProgram, sport }) {
   }
 
   return (
-    <Card className="bg-gradient-to-br from-neutral-900 to-red-950/20 border-neutral-800">
+    <Card className="bg-gradient-to-br from-neutral-900 to-violet-950/20 border-neutral-800">
       <CardHeader>
         <div className="flex items-center gap-2">
-          <Mic className="h-5 w-5 text-red-400" />
+          <Mic className="h-5 w-5 text-violet-400" />
           <CardTitle className="text-base">Retour de séance vocal (RPA)</CardTitle>
         </div>
         <CardDescription>Parle ton ressenti — l'IA analyse et ajuste</CardDescription>
@@ -399,7 +431,7 @@ function VoiceFeedbackCard({ userId, lastProgram, sport }) {
         <div className="flex justify-center">
           <button
             onClick={toggleRecord}
-            className={`h-24 w-24 rounded-full flex items-center justify-center transition-all shadow-xl ${recording ? 'bg-red-500 animate-pulse shadow-red-500/50' : 'bg-gradient-to-br from-red-500 to-orange-500 hover:scale-105 shadow-red-500/30'}`}
+            className={`h-24 w-24 rounded-full flex items-center justify-center transition-all shadow-xl ${recording ? 'bg-violet-500 animate-pulse shadow-violet-500/50' : 'bg-gradient-to-br from-violet-500 to-fuchsia-500 hover:scale-105 shadow-violet-500/30'}`}
           >
             {recording ? <MicOff className="h-10 w-10 text-white" /> : <Mic className="h-10 w-10 text-white" />}
           </button>
@@ -412,7 +444,7 @@ function VoiceFeedbackCard({ userId, lastProgram, sport }) {
           className="min-h-24 bg-neutral-950/80 border-neutral-800"
         />
         <div className="flex gap-2">
-          <Button onClick={analyze} disabled={loading || !transcript.trim()} className="flex-1 bg-gradient-to-r from-red-500 to-orange-500 hover:from-red-600 hover:to-orange-600 font-bold">
+          <Button onClick={analyze} disabled={loading || !transcript.trim()} className="flex-1 bg-gradient-to-r from-violet-500 to-fuchsia-500 hover:from-violet-600 hover:to-fuchsia-600 font-bold">
             {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <><Sparkles className="h-4 w-4 mr-2" /> Analyser</>}
           </Button>
           <Button variant="outline" size="icon" onClick={() => { setTranscript(''); setAnalysis(null) }} className="border-neutral-700">
@@ -431,12 +463,12 @@ function FeedbackView({ f }) {
     <div className="space-y-3 text-sm">
       {f.resume && <div className="p-3 bg-neutral-950 border border-neutral-800 rounded-lg text-neutral-200 italic">{f.resume}</div>}
       <div className="flex flex-wrap gap-2">
-        {f.charge_percue && <Badge className="bg-red-500/20 text-red-300 border-red-500/40">Charge: {f.charge_percue}</Badge>}
-        {f.drapeau_rouge && <Badge className="bg-red-600 text-white">⚠ Drapeau rouge</Badge>}
+        {f.charge_percue && <Badge className="bg-violet-500/20 text-violet-300 border-violet-500/40">Charge: {f.charge_percue}</Badge>}
+        {f.drapeau_rouge && <Badge className="bg-violet-600 text-white">⚠ Drapeau rouge</Badge>}
       </div>
       {f.questions_precises?.length > 0 && (
-        <div className="p-3 bg-orange-500/10 border border-orange-500/30 rounded-lg">
-          <div className="text-xs uppercase text-orange-300 tracking-widest mb-2">Le coach te demande</div>
+        <div className="p-3 bg-fuchsia-500/10 border border-fuchsia-500/30 rounded-lg">
+          <div className="text-xs uppercase text-fuchsia-300 tracking-widest mb-2">Le coach te demande</div>
           <ul className="space-y-1.5 text-orange-100 text-xs">
             {f.questions_precises.map((q, i) => <li key={i} className="flex gap-2"><ChevronRight className="h-3 w-3 mt-0.5 shrink-0" /> {q}</li>)}
           </ul>
@@ -451,7 +483,7 @@ function FeedbackView({ f }) {
           <div className="text-xs uppercase text-neutral-400 tracking-widest mb-1">Articulations</div>
           <div className="flex flex-wrap gap-1.5">
             {f.articulations.map((a, i) => (
-              <Badge key={i} variant="outline" className={`border-neutral-700 ${a.gravite === 'elevee' ? 'bg-red-500/20 text-red-300' : a.gravite === 'moyenne' ? 'bg-orange-500/20 text-orange-300' : 'bg-neutral-800 text-neutral-300'}`}>
+              <Badge key={i} variant="outline" className={`border-neutral-700 ${a.gravite === 'elevee' ? 'bg-violet-500/20 text-violet-300' : a.gravite === 'moyenne' ? 'bg-fuchsia-500/20 text-fuchsia-300' : 'bg-neutral-800 text-neutral-300'}`}>
                 {a.zone}: {a.note}
               </Badge>
             ))}
@@ -494,10 +526,10 @@ function ImportCard({ userId, sport }) {
   }
 
   return (
-    <Card className="bg-gradient-to-br from-neutral-900 to-orange-950/20 border-neutral-800">
+    <Card className="bg-gradient-to-br from-neutral-900 to-fuchsia-950/20 border-neutral-800">
       <CardHeader>
         <div className="flex items-center gap-2">
-          <Link2 className="h-5 w-5 text-orange-400" />
+          <Link2 className="h-5 w-5 text-fuchsia-400" />
           <CardTitle className="text-base">Import / Analyse</CardTitle>
         </div>
         <CardDescription>Colle un lien YouTube/Insta ou décris un exercice</CardDescription>
@@ -524,7 +556,7 @@ function ImportCard({ userId, sport }) {
           <Label className="text-xs text-neutral-400">Description / Contexte</Label>
           <Textarea value={desc} onChange={(e) => setDesc(e.target.value)} placeholder="Ce que tu veux travailler, ce que tu vois dans la vidéo…" className="min-h-20 bg-neutral-950/80 border-neutral-800" />
         </div>
-        <Button onClick={run} disabled={loading} className="w-full bg-gradient-to-r from-orange-500 to-red-500 hover:from-orange-600 hover:to-red-600 font-bold">
+        <Button onClick={run} disabled={loading} className="w-full bg-gradient-to-r from-fuchsia-500 to-violet-500 hover:from-fuchsia-600 hover:to-violet-600 font-bold">
           {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <><Sparkles className="h-4 w-4 mr-2" /> Structurer la séance</>}
         </Button>
         {analysis && <ImportView a={analysis} />}
@@ -537,18 +569,18 @@ function ImportView({ a }) {
   if (a?.raw) return <pre className="text-xs text-neutral-300 whitespace-pre-wrap p-3 bg-neutral-950 rounded border border-neutral-800">{a.raw}</pre>
   return (
     <div className="space-y-3 text-sm">
-      {a.titre && <div className="font-bold text-orange-300">{a.titre}</div>}
+      {a.titre && <div className="font-bold text-fuchsia-300">{a.titre}</div>}
       <div className="flex flex-wrap gap-2">
-        {a.type_travail && <Badge className="bg-orange-500/20 text-orange-300 border-orange-500/40">{a.type_travail}</Badge>}
+        {a.type_travail && <Badge className="bg-fuchsia-500/20 text-fuchsia-300 border-fuchsia-500/40">{a.type_travail}</Badge>}
       </div>
       {a.objectif_transfert_mma && <div className="text-xs text-neutral-400 italic">Transfert: {a.objectif_transfert_mma}</div>}
       {a.seance_structuree?.bloc_principal?.length > 0 && (
         <div className="border border-neutral-800 rounded-lg p-3 bg-neutral-950/50">
-          <div className="text-xs uppercase text-orange-300 tracking-widest mb-2">Bloc principal</div>
+          <div className="text-xs uppercase text-fuchsia-300 tracking-widest mb-2">Bloc principal</div>
           <div className="space-y-1.5">
             {a.seance_structuree.bloc_principal.map((ex, i) => (
               <div key={i} className="text-xs text-neutral-300 flex items-start gap-2">
-                <ChevronRight className="h-3 w-3 mt-0.5 text-orange-400 shrink-0" />
+                <ChevronRight className="h-3 w-3 mt-0.5 text-fuchsia-400 shrink-0" />
                 <span><span className="font-medium text-neutral-100">{ex.exercice}</span> — {ex.series} × {ex.reps}{ex.tempo ? ` (tempo ${ex.tempo})` : ''}{ex.repos ? ` / repos ${ex.repos}` : ''}</span>
               </div>
             ))}
@@ -616,8 +648,8 @@ function ReminderBell() {
   return (
     <div className="relative">
       <Button variant="ghost" size="icon" onClick={() => setOpen(!open)} className="h-9 w-9 relative">
-        {enabled ? <BellRing className="h-4 w-4 text-orange-400" /> : <Bell className="h-4 w-4" />}
-        {enabled && <span className="absolute top-1 right-1 h-2 w-2 rounded-full bg-orange-400 animate-pulse" />}
+        {enabled ? <BellRing className="h-4 w-4 text-fuchsia-400" /> : <Bell className="h-4 w-4" />}
+        {enabled && <span className="absolute top-1 right-1 h-2 w-2 rounded-full bg-fuchsia-400 animate-pulse" />}
       </Button>
       {open && (
         <div className="absolute right-0 top-11 z-50 w-64 rounded-xl border border-neutral-800 bg-neutral-900 shadow-2xl p-4 space-y-3">
@@ -627,7 +659,7 @@ function ReminderBell() {
             <Label className="text-xs">Heure</Label>
             <Input type="time" value={time} onChange={(e) => updateTime(e.target.value)} className="bg-neutral-950 border-neutral-800" />
           </div>
-          <Button onClick={toggle} className={`w-full ${enabled ? 'bg-neutral-800 hover:bg-neutral-700' : 'bg-gradient-to-r from-red-500 to-orange-500'}`}>
+          <Button onClick={toggle} className={`w-full ${enabled ? 'bg-neutral-800 hover:bg-neutral-700' : 'bg-gradient-to-r from-violet-500 to-fuchsia-500'}`}>
             {enabled ? 'Désactiver' : 'Activer les rappels'}
           </Button>
           <p className="text-[10px] text-neutral-500">Fonctionne quand l&apos;app est ouverte (onglet actif ou PWA installée).</p>
@@ -683,12 +715,12 @@ function VocalHistoryList({ userId }) {
         {items.map(it => (
           <div key={it.id} className="flex items-start gap-2 p-2 rounded-lg bg-neutral-950/50 border border-neutral-800">
             <Button variant="ghost" size="icon" className="h-8 w-8 shrink-0" onClick={() => play(it)}>
-              {playing === it.id ? <VolumeX className="h-4 w-4 text-red-400" /> : <Volume2 className="h-4 w-4 text-orange-400" />}
+              {playing === it.id ? <VolumeX className="h-4 w-4 text-violet-400" /> : <Volume2 className="h-4 w-4 text-fuchsia-400" />}
             </Button>
             <div className="flex-1 min-w-0">
               <div className="text-[10px] text-neutral-500">{new Date(it.created_at).toLocaleString('fr-FR', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}</div>
               <div className="text-xs text-neutral-300 line-clamp-2">{it.transcript}</div>
-              {it.ai_analysis?.charge_percue && <Badge className="mt-1 bg-red-500/20 text-red-300 border-red-500/40 text-[10px]">Charge: {it.ai_analysis.charge_percue}</Badge>}
+              {it.ai_analysis?.charge_percue && <Badge className="mt-1 bg-violet-500/20 text-violet-300 border-violet-500/40 text-[10px]">Charge: {it.ai_analysis.charge_percue}</Badge>}
             </div>
           </div>
         ))}
@@ -729,7 +761,7 @@ function TimelineTab({ userId }) {
       <Card className="bg-gradient-to-br from-neutral-900 to-neutral-900/60 border-neutral-800">
         <CardHeader>
           <div className="flex items-center gap-2">
-            <TrendingUp className="h-5 w-5 text-orange-400" />
+            <TrendingUp className="h-5 w-5 text-fuchsia-400" />
             <CardTitle className="text-base">Tendances 7 derniers jours</CardTitle>
           </div>
           <CardDescription>Fatigue, HRV, récupération</CardDescription>
@@ -759,7 +791,7 @@ function TimelineTab({ userId }) {
       <Card className="bg-neutral-900/60 border-neutral-800">
         <CardHeader className="pb-2">
           <div className="flex items-center gap-2">
-            <Dumbbell className="h-4 w-4 text-orange-400" />
+            <Dumbbell className="h-4 w-4 text-fuchsia-400" />
             <CardTitle className="text-sm">Dernières séances</CardTitle>
           </div>
         </CardHeader>
@@ -772,7 +804,7 @@ function TimelineTab({ userId }) {
                 <div className="text-[10px] text-neutral-500">{new Date(w.date).toLocaleDateString('fr-FR', { day: '2-digit', month: 'short' })}</div>
               </div>
               <div className="flex gap-1.5 mt-1 flex-wrap">
-                {w.program_json?.intensite && <Badge className="bg-red-500/20 text-red-300 border-red-500/40 text-[10px]">{w.program_json.intensite}</Badge>}
+                {w.program_json?.intensite && <Badge className="bg-violet-500/20 text-violet-300 border-violet-500/40 text-[10px]">{w.program_json.intensite}</Badge>}
                 {w.program_json?.duree_minutes && <Badge variant="secondary" className="bg-neutral-800 text-[10px]">{w.program_json.duree_minutes} min</Badge>}
                 <Badge variant="outline" className="border-neutral-700 text-neutral-400 text-[10px]">{w.sport}</Badge>
               </div>
@@ -828,10 +860,10 @@ function ImageUploadBlock({ userId, sport }) {
   }
 
   return (
-    <Card className="bg-gradient-to-br from-neutral-900 to-orange-950/10 border-neutral-800">
+    <Card className="bg-gradient-to-br from-neutral-900 to-fuchsia-950/10 border-neutral-800">
       <CardHeader className="pb-3">
         <div className="flex items-center gap-2">
-          <ImageIcon className="h-5 w-5 text-orange-400" />
+          <ImageIcon className="h-5 w-5 text-fuchsia-400" />
           <CardTitle className="text-base">Analyse d&apos;image</CardTitle>
         </div>
         <CardDescription>Upload une photo physique ou posture d&apos;exercice</CardDescription>
@@ -862,7 +894,7 @@ function ImageUploadBlock({ userId, sport }) {
             <img src={preview.data} alt="preview" className="w-full max-h-64 object-cover" />
           </div>
         )}
-        <Button onClick={analyze} disabled={loading || !preview} className="w-full bg-gradient-to-r from-orange-500 to-red-500 hover:from-orange-600 hover:to-red-600 font-bold">
+        <Button onClick={analyze} disabled={loading || !preview} className="w-full bg-gradient-to-r from-fuchsia-500 to-violet-500 hover:from-fuchsia-600 hover:to-violet-600 font-bold">
           {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <><Sparkles className="h-4 w-4 mr-2" /> Analyser avec Gemini Vision</>}
         </Button>
         {analysis && <ImageAnalysisView a={analysis} ctx={ctx} />}
@@ -878,16 +910,16 @@ function ImageAnalysisView({ a, ctx }) {
       <div className="space-y-3 text-sm">
         {a.estimation_composition && (
           <div className="grid grid-cols-3 gap-2 text-center">
-            <div className="p-2 bg-neutral-950 rounded border border-neutral-800"><div className="text-[10px] text-neutral-500 uppercase">Muscle</div><div className="text-xs font-semibold text-orange-300 capitalize">{a.estimation_composition.masse_musculaire}</div></div>
-            <div className="p-2 bg-neutral-950 rounded border border-neutral-800"><div className="text-[10px] text-neutral-500 uppercase">Gras</div><div className="text-xs font-semibold text-red-300 capitalize">{a.estimation_composition.gras_visible}</div></div>
+            <div className="p-2 bg-neutral-950 rounded border border-neutral-800"><div className="text-[10px] text-neutral-500 uppercase">Muscle</div><div className="text-xs font-semibold text-fuchsia-300 capitalize">{a.estimation_composition.masse_musculaire}</div></div>
+            <div className="p-2 bg-neutral-950 rounded border border-neutral-800"><div className="text-[10px] text-neutral-500 uppercase">Gras</div><div className="text-xs font-semibold text-violet-300 capitalize">{a.estimation_composition.gras_visible}</div></div>
             <div className="p-2 bg-neutral-950 rounded border border-neutral-800"><div className="text-[10px] text-neutral-500 uppercase">Symétrie</div><div className="text-xs font-semibold text-neutral-200 capitalize">{a.estimation_composition.symetrie}</div></div>
           </div>
         )}
         {a.atouts_visibles?.length > 0 && <Block title="Atouts" items={a.atouts_visibles} />}
         {a.zones_a_developper?.length > 0 && <Block title="Zones à développer" items={a.zones_a_developper} />}
         {a.plan_4_semaines && (
-          <div className="border border-orange-500/30 rounded-lg p-3 bg-orange-500/5">
-            <div className="text-xs uppercase text-orange-300 tracking-widest mb-1">Plan 4 semaines</div>
+          <div className="border border-fuchsia-500/30 rounded-lg p-3 bg-fuchsia-500/5">
+            <div className="text-xs uppercase text-fuchsia-300 tracking-widest mb-1">Plan 4 semaines</div>
             <div className="text-xs text-neutral-200 font-semibold">{a.plan_4_semaines.focus_principal}</div>
             <div className="text-xs text-neutral-400 mt-1">{a.plan_4_semaines.seances_par_semaine} séances/sem · Cardio: {a.plan_4_semaines.cardio}</div>
           </div>
@@ -899,7 +931,7 @@ function ImageAnalysisView({ a, ctx }) {
   }
   return (
     <div className="space-y-3 text-sm">
-      {a.exercice_identifie && <div className="font-bold text-orange-300">{a.exercice_identifie}</div>}
+      {a.exercice_identifie && <div className="font-bold text-fuchsia-300">{a.exercice_identifie}</div>}
       {a.alignement && <div className="text-xs text-neutral-300 italic">{a.alignement}</div>}
       {a.erreurs_probables?.length > 0 && <Block title="Erreurs probables" items={a.erreurs_probables} />}
       {a.corrections_prioritaires?.length > 0 && <Block title="Corrections" items={a.corrections_prioritaires} />}
@@ -935,7 +967,7 @@ function FormScoreCard({ latestHealth }) {
       </Card>
     )
   }
-  const color = score >= 70 ? 'from-green-500 to-emerald-500' : score >= 40 ? 'from-orange-500 to-yellow-500' : 'from-red-600 to-red-500'
+  const color = score >= 70 ? 'from-green-500 to-emerald-500' : score >= 40 ? 'from-fuchsia-500 to-yellow-500' : 'from-violet-600 to-violet-500'
   const label = score >= 70 ? 'GO ⚡' : score >= 40 ? 'MODÉRÉ' : 'RÉCUP'
   const advice = score >= 70 ? 'Tu peux pousser fort' : score >= 40 ? 'Séance à intensité contrôlée' : 'Récupération active recommandée'
   return (
@@ -962,7 +994,10 @@ function NutritionCard({ userId }) {
   const [desc, setDesc] = useState('')
   const [mealType, setMealType] = useState('Déjeuner')
   const [loading, setLoading] = useState(false)
+  const [photoLoading, setPhotoLoading] = useState(false)
+  const [photoPreview, setPhotoPreview] = useState(null)
   const [todayMeals, setTodayMeals] = useState([])
+  const photoRef = useRef(null)
 
   async function refresh() {
     const today = new Date().toISOString().slice(0, 10)
@@ -970,6 +1005,43 @@ function NutritionCard({ userId }) {
     setTodayMeals(data || [])
   }
   useEffect(() => { refresh() }, [userId]) // eslint-disable-line
+
+  async function analyzePhoto(file) {
+    if (!file) return
+    if (file.size > 5 * 1024 * 1024) return toast.error('Photo trop grosse (max 5 Mo)')
+    setPhotoLoading(true)
+    try {
+      const dataUrl = await new Promise((resolve) => {
+        const r = new FileReader(); r.onload = () => resolve(r.result); r.readAsDataURL(file)
+      })
+      setPhotoPreview(dataUrl)
+      const base64 = dataUrl.split(',')[1]
+      const res = await fetch('/api/nutrition/photo', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ imageBase64: base64, mimeType: file.type, hint: desc }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.detail || data.error)
+      const est = data.estimate || {}
+      const payload = {
+        user_id: userId, date: new Date().toISOString().slice(0, 10), meal_type: mealType,
+        name: est.name || 'Repas photo', portion: est.portion || '',
+        calories: est.calories, protein: est.protein, carbs: est.carbs, fat: est.fat,
+        notes: `📸 ${(est.aliments_detectes || []).join(', ')} · confiance: ${est.confiance || 'moyenne'}`,
+      }
+      const { error } = await supabase.from('meals').insert(payload)
+      if (error) throw error
+      toast.success(`📸 ${est.name || 'Repas'} · ${est.calories || 0} kcal · ${est.protein || 0}g prot`)
+      setDesc('')
+      setPhotoPreview(null)
+      refresh()
+    } catch (err) {
+      toast.error(err.message)
+      setPhotoPreview(null)
+    } finally {
+      setPhotoLoading(false)
+    }
+  }
 
   async function addMeal() {
     if (!desc.trim()) return toast.error('Décris ton repas')
@@ -1018,12 +1090,12 @@ function NutritionCard({ userId }) {
           <Utensils className="h-5 w-5 text-green-400" />
           <CardTitle className="text-base">Journal nutrition</CardTitle>
         </div>
-        <CardDescription>Décris, l&apos;IA estime les macros</CardDescription>
+        <CardDescription>Décris ou photographie — l&apos;IA estime les macros</CardDescription>
       </CardHeader>
       <CardContent className="space-y-3">
         <div className="grid grid-cols-4 gap-2 text-center">
-          <div className="p-2 bg-neutral-950 rounded border border-neutral-800"><div className="text-[10px] text-neutral-500">kcal</div><div className="text-sm font-bold text-orange-300">{Math.round(totals.kcal)}</div></div>
-          <div className="p-2 bg-neutral-950 rounded border border-neutral-800"><div className="text-[10px] text-neutral-500">Prot</div><div className="text-sm font-bold text-red-300">{Math.round(totals.p)}g</div></div>
+          <div className="p-2 bg-neutral-950 rounded border border-neutral-800"><div className="text-[10px] text-neutral-500">kcal</div><div className="text-sm font-bold text-fuchsia-300">{Math.round(totals.kcal)}</div></div>
+          <div className="p-2 bg-neutral-950 rounded border border-neutral-800"><div className="text-[10px] text-neutral-500">Prot</div><div className="text-sm font-bold text-violet-300">{Math.round(totals.p)}g</div></div>
           <div className="p-2 bg-neutral-950 rounded border border-neutral-800"><div className="text-[10px] text-neutral-500">Gluc</div><div className="text-sm font-bold text-yellow-300">{Math.round(totals.c)}g</div></div>
           <div className="p-2 bg-neutral-950 rounded border border-neutral-800"><div className="text-[10px] text-neutral-500">Lip</div><div className="text-sm font-bold text-blue-300">{Math.round(totals.f)}g</div></div>
         </div>
@@ -1036,9 +1108,21 @@ function NutritionCard({ userId }) {
           </Select>
           <Input value={desc} onChange={(e) => setDesc(e.target.value)} placeholder="Ex: poulet riz 400g" className="col-span-2 bg-neutral-950/80 border-neutral-800 text-xs" onKeyDown={(e) => e.key === 'Enter' && addMeal()} />
         </div>
-        <Button onClick={addMeal} disabled={loading || !desc.trim()} className="w-full bg-gradient-to-r from-green-500 to-emerald-500 hover:from-green-600 hover:to-emerald-600 font-bold">
-          {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <><Plus className="h-4 w-4 mr-1" /> Ajouter le repas</>}
-        </Button>
+        <input ref={photoRef} type="file" accept="image/*" capture="environment" className="hidden" onChange={(e) => analyzePhoto(e.target.files?.[0])} />
+        <div className="grid grid-cols-2 gap-2">
+          <Button onClick={addMeal} disabled={loading || photoLoading || !desc.trim()} className="bg-gradient-to-r from-green-500 to-emerald-500 hover:from-green-600 hover:to-emerald-600 font-bold">
+            {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <><Plus className="h-4 w-4 mr-1" /> Texte</>}
+          </Button>
+          <Button onClick={() => photoRef.current?.click()} disabled={photoLoading || loading} variant="outline" className="border-green-700/60 hover:bg-green-900/30 font-bold">
+            {photoLoading ? <><Loader2 className="h-4 w-4 mr-1 animate-spin" /> Analyse…</> : <><ImageIcon className="h-4 w-4 mr-1" /> 📸 Photo</>}
+          </Button>
+        </div>
+        {photoPreview && (
+          <div className="relative rounded-lg overflow-hidden border border-green-500/30">
+            <img src={photoPreview} alt="Aperçu repas" className="w-full max-h-40 object-cover opacity-80" />
+            {photoLoading && <div className="absolute inset-0 flex items-center justify-center bg-black/60"><Loader2 className="h-8 w-8 animate-spin text-green-400" /></div>}
+          </div>
+        )}
         {todayMeals.length > 0 && (
           <div className="space-y-1.5">
             {todayMeals.map(m => (
@@ -1046,7 +1130,7 @@ function NutritionCard({ userId }) {
                 <Apple className="h-3.5 w-3.5 text-green-400 shrink-0" />
                 <div className="flex-1 min-w-0">
                   <div className="text-xs font-medium text-neutral-200 truncate">{m.name}</div>
-                  <div className="text-[10px] text-neutral-500">{m.meal_type} · {Math.round(m.calories || 0)}kcal · {Math.round(m.protein || 0)}g prot</div>
+                  <div className="text-[10px] text-neutral-500">{m.meal_type} · {Math.round(m.calories || 0)}kcal · {Math.round(m.protein || 0)}g prot{m.notes ? ` · ${m.notes.slice(0, 30)}` : ''}</div>
                 </div>
                 <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => del(m.id)}><Trash2 className="h-3.5 w-3.5 text-neutral-500" /></Button>
               </div>
@@ -1114,8 +1198,8 @@ function NutritionWeekly({ userId, sport }) {
             )}
             {analysis.moyennes_quotidiennes && (
               <div className="grid grid-cols-4 gap-1.5 text-center text-[10px]">
-                <div className="p-1.5 bg-neutral-950 rounded"><div className="text-neutral-500">kcal/j</div><div className="font-bold text-orange-300">{Math.round(analysis.moyennes_quotidiennes.calories || 0)}</div></div>
-                <div className="p-1.5 bg-neutral-950 rounded"><div className="text-neutral-500">Prot/j</div><div className="font-bold text-red-300">{Math.round(analysis.moyennes_quotidiennes.protein || 0)}g</div></div>
+                <div className="p-1.5 bg-neutral-950 rounded"><div className="text-neutral-500">kcal/j</div><div className="font-bold text-fuchsia-300">{Math.round(analysis.moyennes_quotidiennes.calories || 0)}</div></div>
+                <div className="p-1.5 bg-neutral-950 rounded"><div className="text-neutral-500">Prot/j</div><div className="font-bold text-violet-300">{Math.round(analysis.moyennes_quotidiennes.protein || 0)}g</div></div>
                 <div className="p-1.5 bg-neutral-950 rounded"><div className="text-neutral-500">Gluc/j</div><div className="font-bold text-yellow-300">{Math.round(analysis.moyennes_quotidiennes.carbs || 0)}g</div></div>
                 <div className="p-1.5 bg-neutral-950 rounded"><div className="text-neutral-500">Lip/j</div><div className="font-bold text-blue-300">{Math.round(analysis.moyennes_quotidiennes.fat || 0)}g</div></div>
               </div>
@@ -1136,16 +1220,22 @@ function Dashboard({ user, onSignOut }) {
   const [sport, setSport] = useState('MMA')
   const [latestHealth, setLatestHealth] = useState(null)
   const [lastProgram, setLastProgram] = useState(null)
+  const [recentWorkouts, setRecentWorkouts] = useState([])
 
   useEffect(() => {
     (async () => {
       const today = new Date().toISOString().slice(0, 10)
       const { data: h } = await supabase.from('health_data').select('*').eq('user_id', user.id).eq('date', today).order('created_at', { ascending: false }).limit(1)
       if (h?.[0]) setLatestHealth(h[0])
-      const { data: w } = await supabase.from('workouts').select('*').eq('user_id', user.id).order('created_at', { ascending: false }).limit(1)
+      const { data: w } = await supabase.from('workouts').select('*').eq('user_id', user.id).order('created_at', { ascending: false }).limit(7)
       if (w?.[0]) setLastProgram(w[0].program_json)
+      setRecentWorkouts(w || [])
       const { data: p } = await supabase.from('profiles').select('*').eq('id', user.id).maybeSingle()
       if (p?.sport) setSport(p.sport)
+      // Request notification permission proactively
+      if (typeof Notification !== 'undefined' && Notification.permission === 'default') {
+        try { await Notification.requestPermission() } catch {}
+      }
     })()
   }, [user.id, supabase])
 
@@ -1154,11 +1244,11 @@ function Dashboard({ user, onSignOut }) {
       <header className="sticky top-0 z-40 backdrop-blur bg-neutral-950/80 border-b border-neutral-900">
         <div className="max-w-md mx-auto px-4 py-3 flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <div className="h-9 w-9 rounded-xl bg-gradient-to-br from-red-500 to-orange-500 flex items-center justify-center">
+            <div className="h-9 w-9 rounded-xl bg-gradient-to-br from-violet-500 to-fuchsia-500 flex items-center justify-center">
               <Flame className="h-5 w-5 text-white" />
             </div>
             <div>
-              <div className="text-sm font-black leading-none">COACH IA</div>
+              <div className="text-sm font-black leading-none">ONYX 🧬</div>
               <div className="text-[10px] text-neutral-500 uppercase tracking-widest">{user.email?.split('@')[0]}</div>
             </div>
           </div>
@@ -1181,16 +1271,16 @@ function Dashboard({ user, onSignOut }) {
       <main className="max-w-md mx-auto px-4 py-4">
         <Tabs defaultValue="today" className="w-full">
           <TabsList className="grid grid-cols-4 bg-neutral-900 mb-4">
-            <TabsTrigger value="today" className="data-[state=active]:bg-red-500 data-[state=active]:text-white text-xs">
+            <TabsTrigger value="today" className="data-[state=active]:bg-violet-500 data-[state=active]:text-white text-xs">
               <Flame className="h-3.5 w-3.5 mr-1" /> Jour
             </TabsTrigger>
-            <TabsTrigger value="rpa" className="data-[state=active]:bg-red-500 data-[state=active]:text-white text-xs">
+            <TabsTrigger value="rpa" className="data-[state=active]:bg-violet-500 data-[state=active]:text-white text-xs">
               <Mic className="h-3.5 w-3.5 mr-1" /> RPA
             </TabsTrigger>
-            <TabsTrigger value="import" className="data-[state=active]:bg-red-500 data-[state=active]:text-white text-xs">
+            <TabsTrigger value="import" className="data-[state=active]:bg-violet-500 data-[state=active]:text-white text-xs">
               <Link2 className="h-3.5 w-3.5 mr-1" /> Import
             </TabsTrigger>
-            <TabsTrigger value="history" className="data-[state=active]:bg-red-500 data-[state=active]:text-white text-xs">
+            <TabsTrigger value="history" className="data-[state=active]:bg-violet-500 data-[state=active]:text-white text-xs">
               <History className="h-3.5 w-3.5 mr-1" /> Suivi
             </TabsTrigger>
           </TabsList>
@@ -1198,7 +1288,7 @@ function Dashboard({ user, onSignOut }) {
           <TabsContent value="today" className="space-y-4 mt-0">
             <FormScoreCard latestHealth={latestHealth} />
             <HealthCard userId={user.id} latest={latestHealth} onSaved={setLatestHealth} />
-            <ProgramCard userId={user.id} sport={sport} latestHealth={latestHealth} onNewProgram={setLastProgram} />
+            <ProgramCard userId={user.id} sport={sport} latestHealth={latestHealth} recentWorkouts={recentWorkouts} onNewProgram={setLastProgram} />
             <NutritionCard userId={user.id} />
           </TabsContent>
 
@@ -1247,7 +1337,7 @@ export default function App() {
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-neutral-950">
-        <Loader2 className="h-8 w-8 animate-spin text-red-500" />
+        <Loader2 className="h-8 w-8 animate-spin text-violet-500" />
       </div>
     )
   }

@@ -192,3 +192,42 @@ test_plan:
 agent_communication:
   - agent: "main"
     message: "MVP livré. 3 endpoints IA testés OK avec Gemini 3.6 Flash (basculé automatiquement suite à messages Google indiquant que gemini-2.5-pro et gemini-2.5-flash ne sont plus dispo aux nouveaux utilisateurs). Web Speech API native pour la transcription vocale. Frontend affiché correctement au premier chargement. Reste à: (1) utilisateur exécute /app/SUPABASE_SETUP.sql dans Supabase SQL Editor, (2) tester signup + création de séance de bout en bout."
+
+# ============ v4 — Bug fix: Photo repas manquante ============
+backend_v4:
+  - task: "AI endpoint - Meal photo macros (Gemini Vision)"
+    implemented: true
+    working: true
+    file: "/app/app/api/[[...path]]/route.js"
+    endpoint: "POST /api/nutrition/photo"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+      - working: "NA"
+        agent: "main"
+        comment: "New endpoint added. Accepts { imageBase64, mimeType, hint }. Uses chatVision() with Gemini 3.6 Flash to return {name, aliments_detectes[], portion, calories, protein, carbs, fat, confiance, note}. Needs testing with a real base64 image."
+      - working: true
+        agent: "testing"
+        comment: "✅ TESTED & WORKING. Generated 32x32 JPEG test image, sent as base64 with hint 'poulet et riz'. Response time: 23s (expected for Gemini Vision). Response structure validated: all required fields present (name, aliments_detectes array with 2 items, portion, calories:470, protein:40g, carbs:56g, fat:9g, confiance:faible, note). Error handling also tested: empty payload correctly returns 400 with 'imageBase64 required'. Note: Gemini Vision API experienced intermittent 'high demand' errors during testing (temporary Google API issue, not code bug)."
+  - task: "AI endpoint - Program with rest days + stretches + duration"
+    implemented: true
+    working: true
+    file: "/app/app/api/[[...path]]/route.js"
+    endpoint: "POST /api/coach/program"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+      - working: "NA"
+        agent: "main"
+        comment: "Prompt updated to: (1) decide seance vs repos_actif vs repos_complet based on recent_sessions + HRV/fatigue, (2) return etirements[] array, (3) include duree_minutes + justification_choix + notification (short push message)."
+      - working: true
+        agent: "testing"
+        comment: "✅✅ TESTED & WORKING EXCELLENTLY. REST LOGIC VERIFIED: Test 1 (poor recovery: HRV=35, sleep=4.5h, fatigue=9, 2 consecutive strong sessions) → correctly returned 'repos_actif' with 3 stretches, 35min duration, justification mentioning HRV/fatigue/sleep. Test 2 (good recovery: HRV=75, sleep=8.5h, fatigue=2, no recent sessions) → correctly returned 'seance' with 'forte' intensity, 85min duration. All required fields present: type, etirements (non-empty array), duree_minutes, justification_choix, notification. Response times: 23-39s (expected for Gemini). AI decision-making logic working perfectly."
+
+agent_communication_v4:
+  - agent: "main"
+    message: "Bug fix: added meal photo feature (POST /api/nutrition/photo). Also enhanced /api/coach/program to include rest day logic, stretches (etirements), duration, and a notification field. Rebrand: COACH IA -> ONYX 🧬, red -> violet. Frontend page.js updated with 📸 Photo button in NutritionCard. Please test the 2 backend endpoints: /api/nutrition/photo (with a small base64 image) and /api/coach/program (with recent_sessions array to verify it can suggest repos)."
+  - agent: "testing"
+    message: "✅ ALL BACKEND TESTS PASSED (8/8 - 100%). Priority 1 (meal photo endpoint): WORKING - tested with generated 32x32 JPEG, all response fields validated, error handling correct. Priority 2 (program rest logic): WORKING EXCELLENTLY - AI correctly suggests repos_actif for poor recovery (HRV=35, fatigue=9) and seance/forte for good recovery (HRV=75, fatigue=2). Priority 3 (regression tests): ALL PASSING - health, feedback, link analysis, nutrition estimate all working. Response times 5-39s (expected for Gemini API calls). Note: Gemini API experienced intermittent 'high demand' errors during testing (temporary Google issue, resolved by retrying). Backend implementation is solid and production-ready."

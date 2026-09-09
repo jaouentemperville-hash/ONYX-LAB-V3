@@ -2,13 +2,13 @@ import './globals.css'
 import { Toaster } from '@/components/ui/sonner'
 
 export const metadata = {
-  title: 'Coach IA — Athlétisation, MMA & No-Gi',
-  description: 'Coaching sportif intelligent piloté par IA — programmes du jour, RPA vocal, analyse vidéo',
+  title: 'ONYX 🧬 — Coach IA Athlétisation, MMA & No-Gi',
+  description: 'ONYX · Coaching sportif intelligent piloté par IA — programmes du jour, RPA vocal, analyse vidéo, nutrition photo',
   manifest: '/manifest.webmanifest',
   appleWebApp: {
     capable: true,
     statusBarStyle: 'black-translucent',
-    title: 'Coach IA',
+    title: 'ONYX',
   },
 }
 
@@ -17,7 +17,7 @@ export const viewport = {
   initialScale: 1,
   maximumScale: 1,
   userScalable: false,
-  themeColor: '#ef4444',
+  themeColor: '#8b5cf6',
 }
 
 export default function RootLayout({ children }) {
