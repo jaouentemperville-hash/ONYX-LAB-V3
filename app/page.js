@@ -308,6 +308,69 @@ function MetricInput({ icon, label, value, onChange, placeholder }) {
   )
 }
 
+function SessionStatusButtons({ userId, sport, latestHealth, recentWorkouts, onDone, onRefreshWeek }) {
+  const supabase = getSupabaseBrowser()
+  const [workout, setWorkout] = useState(null)
+  const [loading, setLoading] = useState(false)
+
+  async function load() {
+    const today = new Date().toISOString().slice(0, 10)
+    const { data } = await supabase.from('workouts').select('*').eq('user_id', userId).eq('date', today).neq('type_seance', 'week_plan').order('created_at', { ascending: false }).limit(1)
+    if (data?.[0]) setWorkout(data[0])
+  }
+  useEffect(() => { load() }, [userId, recentWorkouts?.length]) // eslint-disable-line
+
+  async function setStatus(status) {
+    if (!workout) return
+    setLoading(true)
+    try {
+      const { error } = await supabase.from('workouts').update({ status }).eq('id', workout.id)
+      if (error) throw error
+      setWorkout({ ...workout, status })
+      toast.success(status === 'fait' ? '✅ Séance validée' : status === 'manquee' ? '❌ Séance non faite — semaine à réajuster' : '⚠ Partielle enregistrée')
+      onDone?.(status)
+      // If skipped or partial, propose auto week re-plan
+      if (status !== 'fait') {
+        toast.message('🔄 ONYX ajuste ta semaine…', { duration: 4000 })
+        await onRefreshWeek?.()
+      }
+    } catch (err) {
+      toast.error(err.message)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  if (!workout || workout.type_seance === 'week_plan') return null
+
+  const status = workout.status || 'planifie'
+  const badges = {
+    fait: { label: '✅ FAIT', cls: 'bg-green-500/20 text-green-300 border-green-500/40' },
+    manquee: { label: '❌ MANQUÉE', cls: 'bg-red-500/20 text-red-300 border-red-500/40' },
+    partielle: { label: '⚠ PARTIELLE', cls: 'bg-yellow-500/20 text-yellow-300 border-yellow-500/40' },
+  }
+
+  return (
+    <div className="pt-3 border-t border-neutral-800 space-y-2">
+      {status !== 'planifie' ? (
+        <div className="flex items-center gap-2">
+          <Badge className={badges[status]?.cls || 'bg-neutral-800'}>{badges[status]?.label || status}</Badge>
+          <Button size="sm" variant="ghost" onClick={() => setStatus('planifie')} className="text-xs text-neutral-500 h-7">Réinitialiser</Button>
+        </div>
+      ) : (
+        <>
+          <div className="text-[10px] uppercase text-neutral-500 tracking-widest">As-tu fait la séance ?</div>
+          <div className="grid grid-cols-3 gap-2">
+            <Button size="sm" disabled={loading} onClick={() => setStatus('fait')} className="bg-green-500/20 text-green-200 hover:bg-green-500/30 border border-green-500/40 text-xs">✅ Fait</Button>
+            <Button size="sm" disabled={loading} onClick={() => setStatus('partielle')} className="bg-yellow-500/20 text-yellow-200 hover:bg-yellow-500/30 border border-yellow-500/40 text-xs">⚠ Partielle</Button>
+            <Button size="sm" disabled={loading} onClick={() => setStatus('manquee')} className="bg-red-500/20 text-red-200 hover:bg-red-500/30 border border-red-500/40 text-xs">❌ Non fait</Button>
+          </div>
+        </>
+      )}
+    </div>
+  )
+}
+
 function ProgramCard({ userId, sport, latestHealth, recentWorkouts = [], initialProgram = null, onNewProgram }) {
   const supabase = getSupabaseBrowser()
   const [loading, setLoading] = useState(false)
@@ -398,6 +461,38 @@ function ProgramCard({ userId, sport, latestHealth, recentWorkouts = [], initial
           {loading ? <><Loader2 className="h-4 w-4 animate-spin mr-2" /> Le coach réfléchit...</> : <><Sparkles className="h-4 w-4 mr-2" /> Générer ma séance IA</>}
         </Button>
         {program && <ProgramView program={program} />}
+        <SessionStatusButtons
+          userId={userId}
+          sport={sport}
+          latestHealth={latestHealth}
+          recentWorkouts={recentWorkouts}
+          onRefreshWeek={async () => {
+            // Auto re-plan the week when session missed/partial
+            try {
+              const res = await fetch('/api/coach/week', {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  sport,
+                  hrv: latestHealth?.hrv, sleep_hours: latestHealth?.sleep_hours,
+                  recovery_score: latestHealth?.recovery_score, fatigue: latestHealth?.fatigue,
+                  recent_sessions: recentWorkouts.slice(0, 5).map(w => ({
+                    date: w.date, type: w.type_seance, status: w.status,
+                    intensite: w.program_json?.intensite, focus: w.program_json?.focus,
+                  })),
+                }),
+              })
+              const data = await res.json()
+              if (res.ok && data.plan) {
+                const supabase = getSupabaseBrowser()
+                await supabase.from('workouts').insert({
+                  user_id: userId, date: new Date().toISOString().slice(0, 10),
+                  sport, type_seance: 'week_plan', program_json: data.plan, status: 'planifie',
+                })
+                toast.success('📅 Semaine réajustée')
+              }
+            } catch {}
+          }}
+        />
       </CardContent>
     </Card>
   )
@@ -713,9 +808,12 @@ function ImportView({ a }) {
   )
 }
 
-function ReminderBell() {
+function ReminderBell({ userId }) {
+  const supabase = getSupabaseBrowser()
   const [enabled, setEnabled] = useState(false)
   const [time, setTime] = useState('08:00')
+  const [eveningEnabled, setEveningEnabled] = useState(false)
+  const [eveningTime, setEveningTime] = useState('20:00')
   const [open, setOpen] = useState(false)
 
   useEffect(() => {
@@ -723,66 +821,126 @@ function ReminderBell() {
       const s = JSON.parse(localStorage.getItem('coachReminder') || '{}')
       if (s.enabled) setEnabled(true)
       if (s.time) setTime(s.time)
+      if (s.eveningEnabled) setEveningEnabled(true)
+      if (s.eveningTime) setEveningTime(s.eveningTime)
     } catch {}
   }, [])
 
   useEffect(() => {
-    if (!enabled) return
-    const interval = setInterval(() => {
+    if (!enabled && !eveningEnabled) return
+    const check = async () => {
       const now = new Date()
       const hh = String(now.getHours()).padStart(2, '0')
       const mm = String(now.getMinutes()).padStart(2, '0')
       const today = now.toISOString().slice(0, 10)
-      const last = localStorage.getItem('coachReminder_last')
-      if (`${hh}:${mm}` === time && last !== today) {
-        if (typeof Notification !== 'undefined' && Notification.permission === 'granted') {
-          new Notification('🔥 Coach IA', { body: 'C\'est l\'heure de saisir ta forme du jour et de recevoir ton programme.', icon: '/icon-192.png' })
-          localStorage.setItem('coachReminder_last', today)
+      const cur = `${hh}:${mm}`
+      const canNotify = typeof Notification !== 'undefined' && Notification.permission === 'granted'
+      // Morning
+      if (enabled && cur === time) {
+        const last = localStorage.getItem('coachReminder_last_morning')
+        if (last !== today && canNotify) {
+          new Notification('🔥 ONYX · Forme du jour', { body: 'Saisis ta forme du matin et reçois ton programme.', icon: '/icon-192.png' })
+          localStorage.setItem('coachReminder_last_morning', today)
         }
       }
-    }, 30000)
+      // Evening — preview tomorrow from the last week_plan
+      if (eveningEnabled && cur === eveningTime && userId) {
+        const last = localStorage.getItem('coachReminder_last_evening')
+        if (last !== today && canNotify) {
+          try {
+            const tomorrow = new Date(now); tomorrow.setDate(tomorrow.getDate() + 1)
+            const td = tomorrow.toISOString().slice(0, 10)
+            const { data } = await supabase.from('workouts').select('*').eq('user_id', userId).eq('type_seance', 'week_plan').order('created_at', { ascending: false }).limit(1)
+            const plan = data?.[0]?.program_json
+            const day = (plan?.week || []).find(d => d.date === td)
+            const body = day
+              ? `${day.type === 'seance' ? '⚡' : day.type === 'repos_actif' ? '🧘' : '💤'} Demain : ${day.focus || day.type} (${day.duree_minutes || 0} min${day.intensite ? ' · ' + day.intensite : ''})`
+              : 'Prépare ta journée de demain — ouvre ONYX pour planifier la semaine.'
+            new Notification('🌙 ONYX · Aperçu de demain', { body, icon: '/icon-192.png', tag: 'onyx-eve' })
+            localStorage.setItem('coachReminder_last_evening', today)
+          } catch {}
+        }
+      }
+    }
+    const interval = setInterval(check, 30000)
     return () => clearInterval(interval)
-  }, [enabled, time])
+  }, [enabled, time, eveningEnabled, eveningTime, userId, supabase])
 
   async function toggle() {
     if (!enabled) {
       if (typeof Notification === 'undefined') { toast.error('Notifications non supportées'); return }
       const perm = await Notification.requestPermission()
       if (perm !== 'granted') { toast.error('Permission refusée'); return }
-      const next = { enabled: true, time }
+      const next = { enabled: true, time, eveningEnabled, eveningTime }
       localStorage.setItem('coachReminder', JSON.stringify(next))
       setEnabled(true)
-      toast.success(`Rappel activé pour ${time}`)
+      toast.success(`Rappel matin activé pour ${time}`)
     } else {
-      localStorage.setItem('coachReminder', JSON.stringify({ enabled: false, time }))
+      const next = { enabled: false, time, eveningEnabled, eveningTime }
+      localStorage.setItem('coachReminder', JSON.stringify(next))
       setEnabled(false)
-      toast.success('Rappel désactivé')
+      toast.success('Rappel matin désactivé')
+    }
+  }
+
+  async function toggleEvening() {
+    if (!eveningEnabled) {
+      if (typeof Notification === 'undefined') { toast.error('Notifications non supportées'); return }
+      const perm = await Notification.requestPermission()
+      if (perm !== 'granted') { toast.error('Permission refusée'); return }
+      const next = { enabled, time, eveningEnabled: true, eveningTime }
+      localStorage.setItem('coachReminder', JSON.stringify(next))
+      setEveningEnabled(true)
+      toast.success(`Rappel préveille activé pour ${eveningTime}`)
+    } else {
+      const next = { enabled, time, eveningEnabled: false, eveningTime }
+      localStorage.setItem('coachReminder', JSON.stringify(next))
+      setEveningEnabled(false)
+      toast.success('Rappel préveille désactivé')
     }
   }
 
   function updateTime(v) {
     setTime(v)
-    if (enabled) localStorage.setItem('coachReminder', JSON.stringify({ enabled: true, time: v }))
+    localStorage.setItem('coachReminder', JSON.stringify({ enabled, time: v, eveningEnabled, eveningTime }))
   }
+  function updateEveningTime(v) {
+    setEveningTime(v)
+    localStorage.setItem('coachReminder', JSON.stringify({ enabled, time, eveningEnabled, eveningTime: v }))
+  }
+
+  const anyOn = enabled || eveningEnabled
 
   return (
     <div className="relative">
       <Button variant="ghost" size="icon" onClick={() => setOpen(!open)} className="h-9 w-9 relative">
-        {enabled ? <BellRing className="h-4 w-4 text-fuchsia-400" /> : <Bell className="h-4 w-4" />}
-        {enabled && <span className="absolute top-1 right-1 h-2 w-2 rounded-full bg-fuchsia-400 animate-pulse" />}
+        {anyOn ? <BellRing className="h-4 w-4 text-fuchsia-400" /> : <Bell className="h-4 w-4" />}
+        {anyOn && <span className="absolute top-1 right-1 h-2 w-2 rounded-full bg-fuchsia-400 animate-pulse" />}
       </Button>
       {open && (
-        <div className="absolute right-0 top-11 z-50 w-64 rounded-xl border border-neutral-800 bg-neutral-900 shadow-2xl p-4 space-y-3">
-          <div className="text-xs uppercase text-neutral-400 tracking-widest">Rappel quotidien</div>
-          <p className="text-xs text-neutral-400">Une notification t&apos;invite à saisir ta forme du matin.</p>
-          <div className="space-y-1">
-            <Label className="text-xs">Heure</Label>
-            <Input type="time" value={time} onChange={(e) => updateTime(e.target.value)} className="bg-neutral-950 border-neutral-800" />
+        <div className="absolute right-0 top-11 z-50 w-72 rounded-xl border border-neutral-800 bg-neutral-900 shadow-2xl p-4 space-y-4">
+          <div className="space-y-2">
+            <div className="text-xs uppercase text-neutral-400 tracking-widest">🌅 Rappel du matin</div>
+            <div className="space-y-1">
+              <Label className="text-xs">Heure</Label>
+              <Input type="time" value={time} onChange={(e) => updateTime(e.target.value)} className="bg-neutral-950 border-neutral-800" />
+            </div>
+            <Button onClick={toggle} size="sm" className={`w-full ${enabled ? 'bg-neutral-800 hover:bg-neutral-700' : 'bg-gradient-to-r from-violet-500 to-fuchsia-500'}`}>
+              {enabled ? 'Désactiver' : 'Activer'}
+            </Button>
           </div>
-          <Button onClick={toggle} className={`w-full ${enabled ? 'bg-neutral-800 hover:bg-neutral-700' : 'bg-gradient-to-r from-violet-500 to-fuchsia-500'}`}>
-            {enabled ? 'Désactiver' : 'Activer les rappels'}
-          </Button>
-          <p className="text-[10px] text-neutral-500">Fonctionne quand l&apos;app est ouverte (onglet actif ou PWA installée).</p>
+          <div className="border-t border-neutral-800 pt-4 space-y-2">
+            <div className="text-xs uppercase text-neutral-400 tracking-widest">🌙 Rappel préveille (soir)</div>
+            <p className="text-[11px] text-neutral-500">Aperçu de la séance/repos du lendemain</p>
+            <div className="space-y-1">
+              <Label className="text-xs">Heure</Label>
+              <Input type="time" value={eveningTime} onChange={(e) => updateEveningTime(e.target.value)} className="bg-neutral-950 border-neutral-800" />
+            </div>
+            <Button onClick={toggleEvening} size="sm" className={`w-full ${eveningEnabled ? 'bg-neutral-800 hover:bg-neutral-700' : 'bg-gradient-to-r from-violet-500 to-fuchsia-500'}`}>
+              {eveningEnabled ? 'Désactiver' : 'Activer'}
+            </Button>
+          </div>
+          <p className="text-[10px] text-neutral-500">Fonctionne quand ONYX est ouvert (onglet actif ou PWA installée).</p>
         </div>
       )}
     </div>
@@ -1513,7 +1671,7 @@ function Dashboard({ user, onSignOut }) {
                 {SPORTS.map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}
               </SelectContent>
             </Select>
-            <ReminderBell />
+            <ReminderBell userId={user.id} />
             <Button variant="ghost" size="icon" onClick={onSignOut} className="h-9 w-9"><LogOut className="h-4 w-4" /></Button>
           </div>
         </div>
