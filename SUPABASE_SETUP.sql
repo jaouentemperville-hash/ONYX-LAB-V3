@@ -23,13 +23,15 @@ create table if not exists public.profiles (
   poids_kg numeric,
   taille_cm numeric,
   objectifs text,
+  club_schedule jsonb default '[]'::jsonb,
   sync_token uuid unique default gen_random_uuid(),
   created_at timestamptz not null default now()
 );
 
--- Garantir que sync_token est bien peuplé (au cas où la colonne aurait été ajoutée après)
 alter table public.profiles add column if not exists sync_token uuid unique default gen_random_uuid();
+alter table public.profiles add column if not exists club_schedule jsonb default '[]'::jsonb;
 update public.profiles set sync_token = gen_random_uuid() where sync_token is null;
+update public.profiles set club_schedule = '[]'::jsonb where club_schedule is null;
 
 -- Données de santé / récupération quotidiennes
 create table if not exists public.health_data (

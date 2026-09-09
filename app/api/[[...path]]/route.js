@@ -128,6 +128,9 @@ JSON strict:
         sport = 'MMA',
         goals = '',
         level = 'intermédiaire',
+        poids_kg = null,
+        taille_cm = null,
+        club_schedule = [],
         hrv = null,
         sleep_hours = null,
         recovery_score = null,
@@ -149,6 +152,8 @@ Tu réponds EXCLUSIVEMENT en français, STRICTEMENT en JSON valide sans markdown
 SPORT: ${sport}
 NIVEAU: ${level}
 OBJECTIFS: ${goals || 'polyvalence combat'}
+POIDS DE CORPS: ${poids_kg ? poids_kg + ' kg' : 'non renseigné'} ${taille_cm ? '· TAILLE: ' + taille_cm + ' cm' : ''}
+HORAIRES CLUB: ${JSON.stringify(club_schedule)} ${(club_schedule || []).length ? '(intègre ces créneaux si compatibles avec aujourd\'hui)' : ''}
 ENVIES DU JOUR: ${envies || 'aucune préférence'}
 ARTICULATIONS SENSIBLES: ${joints || 'aucune'}
 
@@ -158,29 +163,32 @@ DONNÉES DE RÉCUPÉRATION:
 - Score de récupération (0-100): ${recovery_score ?? 'non renseigné'}
 - Fatigue perçue (1-10): ${fatigue ?? 'non renseigné'}
 
-DERNIÈRES SÉANCES (les 7 derniers jours): ${JSON.stringify(recent_sessions).slice(0, 1500)}
+DERNIÈRES SÉANCES (7 derniers jours): ${JSON.stringify(recent_sessions).slice(0, 1500)}
 
-RÈGLES DE DÉCISION:
-- Si 2+ séances "forte" consécutives ou récupération <40 ou fatigue >7 → propose REPOS ACTIF (mobilité + étirements)
-- Si récup bonne (HRV bon, sommeil>7h, fatigue<5) et pas de séance dure hier → intensité FORTE
-- Sinon → intensité MODÉRÉE
-- Durée cohérente avec l'intensité (30-45 min repos actif / 60 min modéré / 75-90 min forte)
+RÈGLES:
+- 2+ séances "forte" consécutives OU récup <40 OU fatigue >7 → REPOS ACTIF (mobilité + étirements)
+- Bonne récup (HRV bon, sommeil>7h, fatigue<5) et pas de séance dure hier → intensité FORTE
+- Sinon → MODÉRÉE
+- Durée cohérente: 30-45 min repos actif / 60 min modéré / 75-90 min forte
+- IMPORTANT: si poids de corps est renseigné, exprime les charges en KG RÉEL (calcul direct depuis % du poids). Sinon en %.
+- N'utilise PAS de caractères "@" dans les valeurs de charge ; écris "à 70% du poids de corps" ou "avec 55 kg".
+- Chaque exercice: précise "type" simple parmi: squat|hinge|push|pull|core|plyo|cardio|mobilite|combat|technique.
 
 Réponds STRICTEMENT au format JSON:
 {
   "date": "YYYY-MM-DD",
   "type": "seance|repos_actif|repos_complet",
   "intensite": "repos|légère|modérée|forte",
-  "focus": "titre court de la séance ou du repos",
+  "focus": "titre court",
   "duree_minutes": 60,
-  "justification_choix": "pourquoi séance/repos aujourd'hui (charge, HRV, fatigue)",
-  "echauffement": [{"nom": "...", "duree": "5 min", "note": "..."}],
-  "corps_seance": [{"bloc": "...", "exercices": [{"nom": "...", "series": "3", "reps": "8", "charge": "70%", "repos": "90s", "note": "..."}]}],
-  "etirements": [{"nom": "...", "duree": "30s x 2", "zone": "..."}],
-  "retour_au_calme": [{"nom": "...", "duree": "..."}],
-  "conseil_coach": "phrase motivante et technique",
-  "attention": "points de vigilance santé/articulations",
-  "notification": "message court (max 80 car.) à envoyer en push aujourd'hui"
+  "justification_choix": "pourquoi",
+  "echauffement": [{"nom":"...","duree":"5 min","note":"..."}],
+  "corps_seance": [{"bloc":"...","exercices":[{"nom":"...","type":"squat","series":"3","reps":"8","charge":"55 kg","repos":"90s","note":"..."}]}],
+  "etirements": [{"nom":"...","duree":"30s x2","zone":"..."}],
+  "retour_au_calme": [{"nom":"...","duree":"..."}],
+  "conseil_coach": "phrase motivante",
+  "attention": "vigilances santé",
+  "notification": "message court (max 80 car.)"
 }`
 
       const raw = await chat({ system, prompt })
@@ -195,6 +203,7 @@ Réponds STRICTEMENT au format JSON:
       const body = await request.json().catch(() => ({}))
       const {
         sport = 'MMA', goals = '', level = 'intermédiaire',
+        poids_kg = null, club_schedule = [],
         hrv = null, sleep_hours = null, recovery_score = null, fatigue = null,
         recent_sessions = [],
       } = body
@@ -219,28 +228,24 @@ Tu réponds STRICTEMENT en JSON français, sans markdown.`
 SPORT: ${sport}
 NIVEAU: ${level}
 OBJECTIFS: ${goals || 'polyvalence combat'}
+POIDS: ${poids_kg ? poids_kg + ' kg' : 'nr'}
+HORAIRES CLUB (à respecter/intégrer): ${JSON.stringify(club_schedule)}
 
 ÉTAT ACTUEL:
 - HRV: ${hrv ?? 'nr'} · Sommeil: ${sleep_hours ?? 'nr'}h · Récup: ${recovery_score ?? 'nr'}/100 · Fatigue: ${fatigue ?? 'nr'}/10
 
-DERNIÈRES SÉANCES (contexte): ${JSON.stringify(recent_sessions).slice(0, 800)}
+DERNIÈRES SÉANCES: ${JSON.stringify(recent_sessions).slice(0, 800)}
 
-DATES À PLANIFIER (dans l'ordre): ${JSON.stringify(dates)}
+DATES À PLANIFIER: ${JSON.stringify(dates)}
+
+RÈGLES: alterner intensités, 1-2 jours repos, respecter les horaires club si listés (types "combat"/"technique" ces jours-là).
+N'utilise PAS le caractère "@" dans les textes.
 
 Réponds STRICTEMENT en JSON:
 {
-  "objectif_semaine": "1-2 phrases sur le focus de la semaine",
+  "objectif_semaine": "1-2 phrases",
   "week": [
-    {
-      "date": "YYYY-MM-DD",
-      "jour": "Lun|Mar|Mer|Jeu|Ven|Sam|Dim",
-      "type": "seance|repos_actif|repos_complet",
-      "intensite": "légère|modérée|forte|repos",
-      "focus": "titre court (5-8 mots)",
-      "duree_minutes": 60,
-      "exercices_cles": ["exercice 1", "exercice 2", "exercice 3"],
-      "note": "1 phrase de contexte"
-    }
+    {"date":"YYYY-MM-DD","jour":"Lun|Mar|...","type":"seance|repos_actif|repos_complet","intensite":"légère|modérée|forte|repos","focus":"titre court","duree_minutes":60,"club":"oui|non","exercices_cles":["ex1","ex2","ex3"],"note":"1 phrase"}
   ]
 }`
 

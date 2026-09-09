@@ -12,15 +12,351 @@ import { Badge } from '@/components/ui/badge'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Separator } from '@/components/ui/separator'
 import { toast } from 'sonner'
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogDescription, DialogFooter } from '@/components/ui/dialog'
+import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger, SheetDescription } from '@/components/ui/sheet'
+import { ScrollArea } from '@/components/ui/scroll-area'
 import {
   Activity, Flame, Mic, MicOff, Sparkles, Loader2, LogOut, Dumbbell,
   Link2, HeartPulse, Moon, Zap, ShieldAlert, ChevronRight, Play, Trash2, ClipboardList,
   Bell, BellRing, Image as ImageIcon, Volume2, VolumeX, History, TrendingUp, Upload,
   Utensils, Apple, Plus, Gauge, Calendar, CalendarDays, Smartphone, Copy, Check,
+  Settings, Target, Weight, Ruler, Youtube, ChevronDown, Eye, MapPin,
 } from 'lucide-react'
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts'
 
 const SPORTS = ['MMA', 'Grappling No-Gi', 'Athlétisation', 'Boxe', 'Muay Thai']
+
+const DAYS_OF_WEEK = [
+  { key: 'lun', label: 'Lundi' }, { key: 'mar', label: 'Mardi' },
+  { key: 'mer', label: 'Mercredi' }, { key: 'jeu', label: 'Jeudi' },
+  { key: 'ven', label: 'Vendredi' }, { key: 'sam', label: 'Samedi' },
+  { key: 'dim', label: 'Dimanche' },
+]
+
+function iconForExercise(type, name) {
+  const t = (type || '').toLowerCase()
+  const n = (name || '').toLowerCase()
+  if (t === 'squat' || n.includes('squat') || n.includes('fente')) return '🦵'
+  if (t === 'hinge' || n.includes('soulevé') || n.includes('deadlift')) return '⚡'
+  if (t === 'push' || n.includes('pomp') || n.includes('développé') || n.includes('press')) return '💪'
+  if (t === 'pull' || n.includes('traction') || n.includes('rowing') || n.includes('tirage')) return '🎯'
+  if (t === 'core' || n.includes('gainage') || n.includes('abdo')) return '🔥'
+  if (t === 'plyo' || n.includes('saut') || n.includes('jump') || n.includes('box')) return '🚀'
+  if (t === 'cardio' || n.includes('sprint') || n.includes('corde') || n.includes('burpee')) return '❤️‍🔥'
+  if (t === 'mobilite' || n.includes('mobilité') || n.includes('étirement')) return '🧘'
+  if (t === 'combat' || n.includes('sparring') || n.includes('frappe') || n.includes('sprawl')) return '🥊'
+  if (t === 'technique') return '📐'
+  return '🏋️'
+}
+
+function sanitize(s) {
+  if (!s) return s
+  return String(s).replaceAll('@', 'à').replaceAll(' à  ', ' à ')
+}
+
+function chargeLabel(charge, poidsKg) {
+  if (!charge) return ''
+  let s = sanitize(String(charge))
+  if (poidsKg && /(\d+)\s*%/.test(s)) {
+    // Convert "70% du poids de corps" or "70%" to actual kg
+    s = s.replace(/(\d+(?:\.\d+)?)\s*%/g, (_, pct) => {
+      const kg = Math.round((Number(pct) / 100) * Number(poidsKg))
+      return `${kg} kg (${pct}%)`
+    })
+  }
+  return s
+}
+
+function youtubeSearchUrl(name) {
+  return `https://www.youtube.com/results?search_query=${encodeURIComponent(name + ' technique tutoriel')}`
+}
+
+function ProfileSettings({ userId, profile, onSaved }) {
+  const supabase = getSupabaseBrowser()
+  const [open, setOpen] = useState(false)
+  const [poids, setPoids] = useState(profile?.poids_kg ?? '')
+  const [taille, setTaille] = useState(profile?.taille_cm ?? '')
+  const [objectifs, setObjectifs] = useState(profile?.objectifs ?? '')
+  const [niveau, setNiveau] = useState(profile?.niveau ?? 'intermediaire')
+  const [schedule, setSchedule] = useState(profile?.club_schedule ?? [])
+  const [saving, setSaving] = useState(false)
+
+  useEffect(() => {
+    setPoids(profile?.poids_kg ?? '')
+    setTaille(profile?.taille_cm ?? '')
+    setObjectifs(profile?.objectifs ?? '')
+    setNiveau(profile?.niveau ?? 'intermediaire')
+    setSchedule(profile?.club_schedule ?? [])
+  }, [profile])
+
+  function toggleDay(dayKey) {
+    const has = schedule.find(s => s.day === dayKey)
+    if (has) setSchedule(schedule.filter(s => s.day !== dayKey))
+    else setSchedule([...schedule, { day: dayKey, time: '19:00', type: 'club', duration: 90 }])
+  }
+  function updDay(dayKey, k, v) {
+    setSchedule(schedule.map(s => s.day === dayKey ? { ...s, [k]: v } : s))
+  }
+
+  async function save() {
+    setSaving(true)
+    try {
+      const payload = {
+        id: userId,
+        poids_kg: poids ? Number(poids) : null,
+        taille_cm: taille ? Number(taille) : null,
+        objectifs: objectifs || null,
+        niveau,
+        club_schedule: schedule,
+      }
+      const { error } = await supabase.from('profiles').upsert(payload)
+      if (error) throw error
+      localStorage.setItem('onyx_last_weight_update', new Date().toISOString().slice(0, 10))
+      toast.success('Profil sauvegardé')
+      onSaved?.(payload)
+      setOpen(false)
+    } catch (err) {
+      toast.error(err.message)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogTrigger asChild>
+        <Button variant="ghost" size="icon" className="h-9 w-9"><Settings className="h-4 w-4" /></Button>
+      </DialogTrigger>
+      <DialogContent className="max-w-md bg-neutral-950 border-neutral-800 max-h-[90vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle>Mon profil ONYX</DialogTitle>
+          <DialogDescription>Poids, taille, objectifs et horaires club</DialogDescription>
+        </DialogHeader>
+        <div className="space-y-4 py-2">
+          <div className="space-y-1">
+            <Label className="text-xs flex items-center gap-1"><Target className="h-3 w-3" /> Objectif principal</Label>
+            <Textarea value={objectifs} onChange={(e) => setObjectifs(e.target.value)} placeholder="Ex: combat MMA amateur dans 8 semaines, garder 78 kg..." className="bg-neutral-900 border-neutral-800 min-h-16" />
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1">
+              <Label className="text-xs flex items-center gap-1"><Weight className="h-3 w-3" /> Poids (kg)</Label>
+              <Input type="number" step="0.1" value={poids} onChange={(e) => setPoids(e.target.value)} placeholder="78" className="bg-neutral-900 border-neutral-800" />
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs flex items-center gap-1"><Ruler className="h-3 w-3" /> Taille (cm)</Label>
+              <Input type="number" value={taille} onChange={(e) => setTaille(e.target.value)} placeholder="180" className="bg-neutral-900 border-neutral-800" />
+            </div>
+          </div>
+          <div className="space-y-1">
+            <Label className="text-xs">Niveau</Label>
+            <Select value={niveau} onValueChange={setNiveau}>
+              <SelectTrigger className="bg-neutral-900 border-neutral-800"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="debutant">Débutant</SelectItem>
+                <SelectItem value="intermediaire">Intermédiaire</SelectItem>
+                <SelectItem value="avance">Avancé</SelectItem>
+                <SelectItem value="expert">Expert / Compétiteur</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-2">
+            <Label className="text-xs flex items-center gap-1"><MapPin className="h-3 w-3" /> Horaires club (jours d&apos;entraînement)</Label>
+            <div className="space-y-1.5">
+              {DAYS_OF_WEEK.map(d => {
+                const s = schedule.find(x => x.day === d.key)
+                return (
+                  <div key={d.key} className="flex items-center gap-2">
+                    <button onClick={() => toggleDay(d.key)} className={`h-7 w-16 rounded text-[11px] font-semibold ${s ? 'bg-violet-500/30 text-violet-200 border border-violet-500/50' : 'bg-neutral-800 text-neutral-500 border border-neutral-800'}`}>
+                      {d.label.slice(0, 3)}
+                    </button>
+                    {s && (
+                      <>
+                        <Input type="time" value={s.time || '19:00'} onChange={(e) => updDay(d.key, 'time', e.target.value)} className="h-7 w-24 bg-neutral-900 border-neutral-800 text-xs" />
+                        <Input placeholder="Type (MMA...)" value={s.type || ''} onChange={(e) => updDay(d.key, 'type', e.target.value)} className="h-7 flex-1 bg-neutral-900 border-neutral-800 text-xs" />
+                      </>
+                    )}
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+        </div>
+        <DialogFooter>
+          <Button onClick={save} disabled={saving} className="w-full bg-gradient-to-r from-violet-500 to-fuchsia-500 hover:from-violet-600 hover:to-fuchsia-600 font-bold">
+            {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Sauvegarder'}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+function ObjectiveBanner({ profile }) {
+  if (!profile?.objectifs) return null
+  return (
+    <div className="flex items-start gap-2 p-3 rounded-xl bg-gradient-to-r from-violet-950/60 to-fuchsia-950/40 border border-violet-500/30">
+      <Target className="h-4 w-4 text-fuchsia-400 mt-0.5 shrink-0" />
+      <div className="flex-1 min-w-0">
+        <div className="text-[10px] uppercase tracking-widest text-fuchsia-300 font-bold">Objectif</div>
+        <div className="text-xs text-neutral-200 leading-relaxed">{sanitize(profile.objectifs)}</div>
+      </div>
+    </div>
+  )
+}
+
+function WeekStrip({ userId, sport, onDayClick }) {
+  const supabase = getSupabaseBrowser()
+  const [plan, setPlan] = useState(null)
+
+  useEffect(() => {
+    (async () => {
+      const today = new Date().toISOString().slice(0, 10)
+      const { data } = await supabase.from('workouts').select('*').eq('user_id', userId).eq('type_seance', 'week_plan').gte('date', today).order('created_at', { ascending: false }).limit(1)
+      if (data?.[0]?.program_json?.week) setPlan(data[0].program_json)
+    })()
+  }, [userId, supabase])
+
+  if (!plan?.week?.length) return null
+
+  return (
+    <Card className="bg-neutral-900/60 border-neutral-800">
+      <CardHeader className="pb-2">
+        <div className="flex items-center gap-2">
+          <CalendarDays className="h-4 w-4 text-violet-400" />
+          <CardTitle className="text-xs uppercase tracking-widest text-neutral-300">Ta semaine</CardTitle>
+        </div>
+      </CardHeader>
+      <CardContent className="pb-3">
+        <div className="flex gap-1.5 overflow-x-auto pb-1">
+          {plan.week.slice(0, 7).map((d, i) => {
+            const isToday = d.date === new Date().toISOString().slice(0, 10)
+            const isRest = String(d.type || '').startsWith('repos')
+            const icon = isRest ? (d.type === 'repos_complet' ? '💤' : '🧘') : '⚡'
+            return (
+              <button
+                key={i}
+                onClick={() => onDayClick?.(d)}
+                className={`shrink-0 w-16 rounded-lg p-2 border text-center transition ${isToday ? 'bg-gradient-to-b from-violet-600 to-fuchsia-600 border-violet-400 text-white' : isRest ? 'bg-neutral-950 border-neutral-800 text-neutral-400' : 'bg-neutral-900 border-neutral-800 text-neutral-200 hover:border-violet-500/50'}`}
+              >
+                <div className="text-[9px] font-bold uppercase opacity-80">{d.jour}</div>
+                <div className="text-lg leading-none my-1">{icon}</div>
+                <div className="text-[9px] opacity-90">{d.duree_minutes || 0}m</div>
+              </button>
+            )
+          })}
+        </div>
+      </CardContent>
+    </Card>
+  )
+}
+
+function SessionDetailSheet({ program, poidsKg, children }) {
+  if (!program) return children || null
+  return (
+    <Sheet>
+      <SheetTrigger asChild>
+        {children || <Button variant="outline" size="sm" className="w-full border-violet-500/50 hover:bg-violet-900/30"><Eye className="h-3.5 w-3.5 mr-2" /> Ouvrir en détail</Button>}
+      </SheetTrigger>
+      <SheetContent side="bottom" className="h-[92vh] bg-neutral-950 border-neutral-800 p-0">
+        <SheetHeader className="p-4 border-b border-neutral-800">
+          <SheetTitle className="text-left">
+            <div className="flex items-center gap-2">
+              {String(program.type || '').startsWith('repos') ? (program.type === 'repos_complet' ? '💤' : '🧘') : '⚡'}
+              <span>{sanitize(program.focus) || 'Séance du jour'}</span>
+            </div>
+          </SheetTitle>
+          <SheetDescription className="text-left flex gap-2 items-center flex-wrap">
+            {program.intensite && <Badge className="bg-violet-500/20 text-violet-300 border-violet-500/40 text-[10px]">{program.intensite}</Badge>}
+            {program.duree_minutes && <Badge variant="secondary" className="bg-neutral-800 text-[10px]">⏱ {program.duree_minutes} min</Badge>}
+          </SheetDescription>
+        </SheetHeader>
+        <ScrollArea className="h-[calc(92vh-100px)] p-4">
+          <div className="space-y-4">
+            {program.justification_choix && (
+              <div className="p-3 bg-violet-500/10 border border-violet-500/30 rounded-lg text-xs text-violet-200 italic">💡 {sanitize(program.justification_choix)}</div>
+            )}
+            {program.echauffement?.length > 0 && (
+              <SectionBlock title="🔥 Échauffement" items={program.echauffement.map(x => ({
+                name: sanitize(x.nom),
+                info: [x.duree, sanitize(x.note)].filter(Boolean).join(' · '),
+              }))} />
+            )}
+            {program.corps_seance?.map((bloc, i) => (
+              <div key={i} className="space-y-2">
+                <div className="text-sm font-bold text-fuchsia-300 uppercase tracking-wide">{sanitize(bloc.bloc)}</div>
+                <div className="space-y-2">
+                  {bloc.exercices?.map((ex, j) => (
+                    <div key={j} className="p-3 bg-neutral-900 border border-neutral-800 rounded-xl">
+                      <div className="flex items-start gap-2 mb-1.5">
+                        <span className="text-2xl leading-none">{iconForExercise(ex.type, ex.nom)}</span>
+                        <div className="flex-1">
+                          <div className="text-sm font-semibold text-neutral-100">{sanitize(ex.nom)}</div>
+                          <div className="text-[11px] text-neutral-400 mt-0.5">
+                            {ex.series && `${ex.series} séries`}
+                            {ex.reps && ` × ${ex.reps} reps`}
+                            {ex.charge && <><br /><span className="text-fuchsia-300 font-medium">Charge : {chargeLabel(ex.charge, poidsKg)}</span></>}
+                            {ex.repos && ` · Repos ${ex.repos}`}
+                          </div>
+                        </div>
+                        <a href={youtubeSearchUrl(ex.nom)} target="_blank" rel="noopener noreferrer" className="shrink-0">
+                          <Button variant="outline" size="icon" className="h-8 w-8 border-red-500/40 hover:bg-red-500/10">
+                            <Youtube className="h-3.5 w-3.5 text-red-400" />
+                          </Button>
+                        </a>
+                      </div>
+                      {ex.note && <div className="text-[11px] text-neutral-500 italic pl-9">💡 {sanitize(ex.note)}</div>}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ))}
+            {program.etirements?.length > 0 && (
+              <SectionBlock title="🧘 Étirements" items={program.etirements.map(x => ({
+                name: sanitize(x.nom),
+                info: [x.duree, x.zone].filter(Boolean).join(' · '),
+              }))} withLink />
+            )}
+            {program.retour_au_calme?.length > 0 && (
+              <SectionBlock title="🌿 Retour au calme" items={program.retour_au_calme.map(x => ({
+                name: sanitize(x.nom),
+                info: x.duree,
+              }))} />
+            )}
+            {program.conseil_coach && (
+              <div className="p-3 bg-fuchsia-500/10 border border-fuchsia-500/30 rounded-lg text-fuchsia-200 text-xs italic">💬 “{sanitize(program.conseil_coach)}”</div>
+            )}
+            {program.attention && (
+              <div className="p-3 bg-red-500/10 border border-red-500/30 rounded-lg text-red-200 text-xs flex gap-2"><ShieldAlert className="h-4 w-4 shrink-0" /> {sanitize(program.attention)}</div>
+            )}
+          </div>
+        </ScrollArea>
+      </SheetContent>
+    </Sheet>
+  )
+}
+
+function SectionBlock({ title, items, withLink }) {
+  return (
+    <div className="space-y-1.5">
+      <div className="text-sm font-bold text-neutral-300">{title}</div>
+      <div className="space-y-1">
+        {items.map((it, i) => (
+          <div key={i} className="flex items-center gap-2 p-2 bg-neutral-900/60 border border-neutral-800 rounded-lg">
+            <div className="flex-1 text-xs text-neutral-200">
+              <div className="font-medium">{it.name}</div>
+              {it.info && <div className="text-[10px] text-neutral-500">{it.info}</div>}
+            </div>
+            {withLink && (
+              <a href={youtubeSearchUrl(it.name)} target="_blank" rel="noopener noreferrer">
+                <Button variant="ghost" size="icon" className="h-7 w-7"><Youtube className="h-3.5 w-3.5 text-red-400" /></Button>
+              </a>
+            )}
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
 
 function AuthGate({ onAuthed }) {
   const supabase = getSupabaseBrowser()
@@ -371,7 +707,7 @@ function SessionStatusButtons({ userId, sport, latestHealth, recentWorkouts, onD
   )
 }
 
-function ProgramCard({ userId, sport, latestHealth, recentWorkouts = [], initialProgram = null, onNewProgram }) {
+function ProgramCard({ userId, sport, latestHealth, profile = null, recentWorkouts = [], initialProgram = null, onNewProgram }) {
   const supabase = getSupabaseBrowser()
   const [loading, setLoading] = useState(false)
   const [program, setProgram] = useState(initialProgram)
@@ -387,6 +723,11 @@ function ProgramCard({ userId, sport, latestHealth, recentWorkouts = [], initial
         sport,
         envies,
         joints,
+        goals: profile?.objectifs || '',
+        level: profile?.niveau || 'intermédiaire',
+        poids_kg: profile?.poids_kg || null,
+        taille_cm: profile?.taille_cm || null,
+        club_schedule: profile?.club_schedule || [],
         hrv: latestHealth?.hrv ?? null,
         sleep_hours: latestHealth?.sleep_hours ?? null,
         recovery_score: latestHealth?.recovery_score ?? null,
@@ -394,6 +735,7 @@ function ProgramCard({ userId, sport, latestHealth, recentWorkouts = [], initial
         recent_sessions: recentWorkouts.map(w => ({
           date: w.date,
           type: w.type_seance,
+          status: w.status,
           intensite: w.program_json?.intensite,
           focus: w.program_json?.focus,
           duree: w.program_json?.duree_minutes,
@@ -460,7 +802,16 @@ function ProgramCard({ userId, sport, latestHealth, recentWorkouts = [], initial
         <Button onClick={generate} disabled={loading} className="w-full bg-gradient-to-r from-violet-500 to-fuchsia-500 hover:from-violet-600 hover:to-fuchsia-600 font-bold h-12">
           {loading ? <><Loader2 className="h-4 w-4 animate-spin mr-2" /> Le coach réfléchit...</> : <><Sparkles className="h-4 w-4 mr-2" /> Générer ma séance IA</>}
         </Button>
-        {program && <ProgramView program={program} />}
+        {program && (
+          <>
+            <ProgramView program={program} />
+            <SessionDetailSheet program={program} poidsKg={profile?.poids_kg}>
+              <Button variant="outline" className="w-full border-violet-500/50 hover:bg-violet-900/30 mt-2">
+                <Eye className="h-4 w-4 mr-2" /> Ouvrir en détail (avec vidéos)
+              </Button>
+            </SessionDetailSheet>
+          </>
+        )}
         <SessionStatusButtons
           userId={userId}
           sport={sport}
@@ -859,6 +1210,15 @@ function ReminderBell({ userId }) {
             new Notification('🌙 ONYX · Aperçu de demain', { body, icon: '/icon-192.png', tag: 'onyx-eve' })
             localStorage.setItem('coachReminder_last_evening', today)
           } catch {}
+        }
+      }
+      // Weekly weight update reminder — every Sunday at morning time
+      if (enabled && now.getDay() === 0 && cur === time) {
+        const lastW = localStorage.getItem('coachReminder_last_weight')
+        const weekKey = `${now.getFullYear()}-W${Math.ceil(((now - new Date(now.getFullYear(), 0, 1)) / 86400000 + new Date(now.getFullYear(), 0, 1).getDay() + 1) / 7)}`
+        if (lastW !== weekKey && canNotify) {
+          new Notification('⚖️ ONYX · Pesée hebdo', { body: 'C\'est dimanche ! Mets à jour ton poids dans les réglages pour recalibrer tes charges.', icon: '/icon-192.png', tag: 'onyx-weight' })
+          localStorage.setItem('coachReminder_last_weight', weekKey)
         }
       }
     }
@@ -1493,11 +1853,13 @@ function NutritionWeekly({ userId, sport }) {
   )
 }
 
-function WeekPlanCard({ userId, sport, latestHealth, recentWorkouts = [] }) {
+function WeekPlanCard({ userId, sport, latestHealth, recentWorkouts = [], profile = null }) {
   const supabase = getSupabaseBrowser()
   const [loading, setLoading] = useState(false)
   const [plan, setPlan] = useState(null)
   const [goals, setGoals] = useState('')
+
+  useEffect(() => { if (profile?.objectifs && !goals) setGoals(profile.objectifs) }, [profile]) // eslint-disable-line
 
   useEffect(() => {
     (async () => {
@@ -1511,11 +1873,13 @@ function WeekPlanCard({ userId, sport, latestHealth, recentWorkouts = [] }) {
     setLoading(true)
     try {
       const body = {
-        sport, level: 'intermédiaire', goals,
+        sport, level: profile?.niveau || 'intermédiaire', goals,
+        poids_kg: profile?.poids_kg || null,
+        club_schedule: profile?.club_schedule || [],
         hrv: latestHealth?.hrv, sleep_hours: latestHealth?.sleep_hours,
         recovery_score: latestHealth?.recovery_score, fatigue: latestHealth?.fatigue,
         recent_sessions: recentWorkouts.slice(0, 5).map(w => ({
-          date: w.date, type: w.type_seance,
+          date: w.date, type: w.type_seance, status: w.status,
           intensite: w.program_json?.intensite, focus: w.program_json?.focus,
         })),
       }
@@ -1605,6 +1969,7 @@ function WeekPlanCard({ userId, sport, latestHealth, recentWorkouts = [] }) {
 function Dashboard({ user, onSignOut }) {
   const supabase = getSupabaseBrowser()
   const [sport, setSport] = useState('MMA')
+  const [profile, setProfile] = useState(null)
   const [latestHealth, setLatestHealth] = useState(null)
   const [lastProgram, setLastProgram] = useState(null)
   const [recentWorkouts, setRecentWorkouts] = useState([])
@@ -1615,11 +1980,10 @@ function Dashboard({ user, onSignOut }) {
     const today = new Date().toISOString().slice(0, 10)
     const { data: h } = await supabase.from('health_data').select('*').eq('user_id', user.id).eq('date', today).order('created_at', { ascending: false }).limit(1)
     if (h?.[0]) setLatestHealth(h[0])
-    const { data: w } = await supabase.from('workouts').select('*').eq('user_id', user.id).order('created_at', { ascending: false }).limit(7)
+    const { data: w } = await supabase.from('workouts').select('*').eq('user_id', user.id).order('created_at', { ascending: false }).limit(10)
     setRecentWorkouts(w || [])
-    // Prefer today's auto workout
     const todayAuto = (w || []).find(x => x.date === today && x.type_seance === 'auto')
-    const anyLast = (w || [])[0]
+    const anyLast = (w || []).find(x => x.type_seance !== 'week_plan')
     const picked = todayAuto || anyLast
     if (picked?.program_json) {
       setLastProgram(picked.program_json)
@@ -1635,14 +1999,12 @@ function Dashboard({ user, onSignOut }) {
     (async () => {
       await refreshAll()
       const { data: p } = await supabase.from('profiles').select('*').eq('id', user.id).maybeSingle()
-      if (p?.sport) setSport(p.sport)
+      if (p) { setProfile(p); if (p.sport) setSport(p.sport) }
       if (typeof Notification !== 'undefined' && Notification.permission === 'default') {
         try { await Notification.requestPermission() } catch {}
       }
     })()
-    // Auto-refresh every 60s so a fresh Apple Health sync appears without reload
     const iv = setInterval(refreshAll, 60000)
-    // Also refresh on focus (user opens the tab in the morning)
     const onFocus = () => refreshAll()
     window.addEventListener('focus', onFocus)
     return () => { clearInterval(iv); window.removeEventListener('focus', onFocus) }
@@ -1672,6 +2034,7 @@ function Dashboard({ user, onSignOut }) {
               </SelectContent>
             </Select>
             <ReminderBell userId={user.id} />
+            <ProfileSettings userId={user.id} profile={profile} onSaved={(p) => setProfile({ ...profile, ...p })} />
             <Button variant="ghost" size="icon" onClick={onSignOut} className="h-9 w-9"><LogOut className="h-4 w-4" /></Button>
           </div>
         </div>
@@ -1702,9 +2065,11 @@ function Dashboard({ user, onSignOut }) {
                 <button onClick={() => setAutoBadge(false)} className="text-violet-300 hover:text-white">✕</button>
               </div>
             )}
+            <ObjectiveBanner profile={profile} />
+            <WeekStrip userId={user.id} sport={sport} />
             <FormScoreCard latestHealth={latestHealth} />
             <HealthCard userId={user.id} latest={latestHealth} onSaved={setLatestHealth} />
-            <ProgramCard userId={user.id} sport={sport} latestHealth={latestHealth} recentWorkouts={recentWorkouts} initialProgram={lastProgram} onNewProgram={setLastProgram} />
+            <ProgramCard userId={user.id} sport={sport} latestHealth={latestHealth} profile={profile} recentWorkouts={recentWorkouts} initialProgram={lastProgram} onNewProgram={setLastProgram} />
             <NutritionCard userId={user.id} />
           </TabsContent>
 
@@ -1719,7 +2084,7 @@ function Dashboard({ user, onSignOut }) {
           </TabsContent>
 
           <TabsContent value="history" className="space-y-4 mt-0">
-            <WeekPlanCard userId={user.id} sport={sport} latestHealth={latestHealth} recentWorkouts={recentWorkouts} />
+            <WeekPlanCard userId={user.id} sport={sport} latestHealth={latestHealth} profile={profile} recentWorkouts={recentWorkouts} />
             <TimelineTab userId={user.id} />
             <NutritionWeekly userId={user.id} sport={sport} />
           </TabsContent>
