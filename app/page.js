@@ -1,0 +1,671 @@
+'use client'
+
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { getSupabaseBrowser } from '@/lib/supabase/browser'
+import { Button } from '@/components/ui/button'
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import { Textarea } from '@/components/ui/textarea'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { Badge } from '@/components/ui/badge'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { Separator } from '@/components/ui/separator'
+import { toast } from 'sonner'
+import {
+  Activity, Flame, Mic, MicOff, Sparkles, Loader2, LogOut, Dumbbell,
+  Link2, HeartPulse, Moon, Zap, ShieldAlert, ChevronRight, Play, Trash2, ClipboardList,
+} from 'lucide-react'
+
+const SPORTS = ['MMA', 'Grappling No-Gi', 'Athlétisation', 'Boxe', 'Muay Thai']
+
+function AuthGate({ onAuthed }) {
+  const supabase = getSupabaseBrowser()
+  const [mode, setMode] = useState('login')
+  const [email, setEmail] = useState('')
+  const [password, setPassword] = useState('')
+  const [displayName, setDisplayName] = useState('')
+  const [loading, setLoading] = useState(false)
+
+  async function submit(e) {
+    e.preventDefault()
+    setLoading(true)
+    try {
+      if (mode === 'signup') {
+        const { data, error } = await supabase.auth.signUp({
+          email, password,
+          options: { data: { display_name: displayName } },
+        })
+        if (error) throw error
+        if (!data.session) {
+          toast.success('Compte créé — vérifie ton email pour confirmer')
+        } else {
+          toast.success('Bienvenue ⚡')
+          onAuthed?.(data.session.user)
+        }
+      } else {
+        const { data, error } = await supabase.auth.signInWithPassword({ email, password })
+        if (error) throw error
+        toast.success('Connecté')
+        onAuthed?.(data.session.user)
+      }
+    } catch (err) {
+      toast.error(err.message || 'Erreur d\'authentification')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  return (
+    <div className="min-h-screen flex items-center justify-center p-4 bg-gradient-to-br from-neutral-950 via-neutral-900 to-red-950/40">
+      <div className="w-full max-w-md">
+        <div className="text-center mb-8">
+          <div className="inline-flex items-center gap-3 mb-3">
+            <div className="h-12 w-12 rounded-2xl bg-gradient-to-br from-red-500 to-orange-500 flex items-center justify-center shadow-lg shadow-red-500/30">
+              <Flame className="h-7 w-7 text-white" />
+            </div>
+            <div className="text-left">
+              <h1 className="text-2xl font-black tracking-tight">COACH IA</h1>
+              <p className="text-xs text-neutral-400 uppercase tracking-widest">MMA — No-Gi — Athlé</p>
+            </div>
+          </div>
+          <p className="text-neutral-400 text-sm">Ton coach intelligent, dans ta poche.</p>
+        </div>
+
+        <Card className="bg-neutral-900/80 backdrop-blur border-neutral-800">
+          <CardHeader>
+            <CardTitle>{mode === 'login' ? 'Connexion' : 'Créer un compte'}</CardTitle>
+            <CardDescription>Ton espace privé sécurisé</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <form onSubmit={submit} className="space-y-4">
+              {mode === 'signup' && (
+                <div className="space-y-1.5">
+                  <Label>Nom / Pseudo</Label>
+                  <Input value={displayName} onChange={(e) => setDisplayName(e.target.value)} placeholder="Ton nom" />
+                </div>
+              )}
+              <div className="space-y-1.5">
+                <Label>Email</Label>
+                <Input type="email" required value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@example.com" />
+              </div>
+              <div className="space-y-1.5">
+                <Label>Mot de passe</Label>
+                <Input type="password" required minLength={6} value={password} onChange={(e) => setPassword(e.target.value)} placeholder="••••••" />
+              </div>
+              <Button type="submit" disabled={loading} className="w-full bg-gradient-to-r from-red-500 to-orange-500 hover:from-red-600 hover:to-orange-600 font-bold h-11">
+                {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : (mode === 'login' ? 'Se connecter' : "S'inscrire")}
+              </Button>
+            </form>
+            <div className="text-center mt-4 text-sm text-neutral-400">
+              {mode === 'login' ? (
+                <>Pas de compte ? <button className="text-red-400 underline" onClick={() => setMode('signup')}>S&apos;inscrire</button></>
+              ) : (
+                <>Déjà inscrit ? <button className="text-red-400 underline" onClick={() => setMode('login')}>Se connecter</button></>
+              )}
+            </div>
+          </CardContent>
+        </Card>
+
+        <p className="text-xs text-neutral-500 text-center mt-6">RLS Supabase strict — tes données restent privées.</p>
+      </div>
+    </div>
+  )
+}
+
+function HealthCard({ userId, onSaved, latest }) {
+  const supabase = getSupabaseBrowser()
+  const [sleep, setSleep] = useState(latest?.sleep_hours ?? '')
+  const [hrv, setHrv] = useState(latest?.hrv ?? '')
+  const [recovery, setRecovery] = useState(latest?.recovery_score ?? '')
+  const [fatigue, setFatigue] = useState(latest?.fatigue ?? '')
+  const [saving, setSaving] = useState(false)
+
+  useEffect(() => {
+    setSleep(latest?.sleep_hours ?? '')
+    setHrv(latest?.hrv ?? '')
+    setRecovery(latest?.recovery_score ?? '')
+    setFatigue(latest?.fatigue ?? '')
+  }, [latest])
+
+  async function save() {
+    setSaving(true)
+    try {
+      const payload = {
+        user_id: userId,
+        date: new Date().toISOString().slice(0, 10),
+        sleep_hours: sleep ? Number(sleep) : null,
+        hrv: hrv ? Number(hrv) : null,
+        recovery_score: recovery ? Number(recovery) : null,
+        fatigue: fatigue ? Number(fatigue) : null,
+      }
+      // Upsert-like: delete today's then insert (simple)
+      await supabase.from('health_data').delete().eq('user_id', userId).eq('date', payload.date)
+      const { error } = await supabase.from('health_data').insert(payload)
+      if (error) throw error
+      toast.success('Données de forme sauvegardées')
+      onSaved?.(payload)
+    } catch (err) {
+      toast.error(err.message)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <Card className="bg-gradient-to-br from-neutral-900 to-neutral-900/50 border-neutral-800">
+      <CardHeader className="pb-3">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <HeartPulse className="h-5 w-5 text-red-400" />
+            <CardTitle className="text-base">Forme du jour</CardTitle>
+          </div>
+          {latest && <Badge variant="secondary" className="bg-neutral-800 text-neutral-300">MAJ</Badge>}
+        </div>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        <div className="grid grid-cols-2 gap-3">
+          <MetricInput icon={<Moon className="h-3.5 w-3.5" />} label="Sommeil (h)" value={sleep} onChange={setSleep} placeholder="7.5" />
+          <MetricInput icon={<Activity className="h-3.5 w-3.5" />} label="HRV (ms)" value={hrv} onChange={setHrv} placeholder="65" />
+          <MetricInput icon={<Zap className="h-3.5 w-3.5" />} label="Récup (0-100)" value={recovery} onChange={setRecovery} placeholder="78" />
+          <MetricInput icon={<Flame className="h-3.5 w-3.5" />} label="Fatigue (1-10)" value={fatigue} onChange={setFatigue} placeholder="4" />
+        </div>
+        <Button onClick={save} disabled={saving} variant="outline" className="w-full border-neutral-700 hover:bg-neutral-800">
+          {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Enregistrer la forme du jour'}
+        </Button>
+      </CardContent>
+    </Card>
+  )
+}
+
+function MetricInput({ icon, label, value, onChange, placeholder }) {
+  return (
+    <div className="space-y-1">
+      <Label className="text-xs text-neutral-400 flex items-center gap-1">{icon}{label}</Label>
+      <Input value={value} onChange={(e) => onChange(e.target.value)} placeholder={placeholder} type="number" step="0.1" className="bg-neutral-950/80 border-neutral-800" />
+    </div>
+  )
+}
+
+function ProgramCard({ userId, sport, latestHealth, onNewProgram }) {
+  const supabase = getSupabaseBrowser()
+  const [loading, setLoading] = useState(false)
+  const [program, setProgram] = useState(null)
+  const [envies, setEnvies] = useState('')
+  const [joints, setJoints] = useState('')
+
+  async function generate() {
+    setLoading(true)
+    try {
+      const body = {
+        sport,
+        envies,
+        joints,
+        hrv: latestHealth?.hrv ?? null,
+        sleep_hours: latestHealth?.sleep_hours ?? null,
+        recovery_score: latestHealth?.recovery_score ?? null,
+        fatigue: latestHealth?.fatigue ?? null,
+      }
+      const res = await fetch('/api/coach/program', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.detail || data.error || 'Erreur IA')
+      const prog = data.program || {}
+      setProgram(prog)
+      onNewProgram?.(prog)
+      // Save to Supabase
+      await supabase.from('workouts').insert({
+        user_id: userId,
+        date: new Date().toISOString().slice(0, 10),
+        sport,
+        type_seance: prog?.focus || 'IA',
+        program_json: prog,
+        status: 'planifie',
+      })
+      toast.success('Programme généré par Claude Sonnet 4.5 ⚡')
+    } catch (err) {
+      toast.error(err.message)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  return (
+    <Card className="bg-gradient-to-br from-red-950/30 via-neutral-900 to-neutral-900 border-red-900/40">
+      <CardHeader>
+        <div className="flex items-center gap-2">
+          <Dumbbell className="h-5 w-5 text-orange-400" />
+          <CardTitle className="text-base">Programme du jour — {sport}</CardTitle>
+        </div>
+        <CardDescription>Adapté à ta récupération en temps réel</CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        <div className="grid grid-cols-1 gap-2">
+          <div className="space-y-1">
+            <Label className="text-xs text-neutral-400">Envies du jour (optionnel)</Label>
+            <Input value={envies} onChange={(e) => setEnvies(e.target.value)} placeholder="Ex: travail explosivité, sparring léger..." className="bg-neutral-950/80 border-neutral-800" />
+          </div>
+          <div className="space-y-1">
+            <Label className="text-xs text-neutral-400">Articulations sensibles (optionnel)</Label>
+            <Input value={joints} onChange={(e) => setJoints(e.target.value)} placeholder="Ex: épaule droite" className="bg-neutral-950/80 border-neutral-800" />
+          </div>
+        </div>
+        <Button onClick={generate} disabled={loading} className="w-full bg-gradient-to-r from-red-500 to-orange-500 hover:from-red-600 hover:to-orange-600 font-bold h-12">
+          {loading ? <><Loader2 className="h-4 w-4 animate-spin mr-2" /> Le coach réfléchit...</> : <><Sparkles className="h-4 w-4 mr-2" /> Générer ma séance IA</>}
+        </Button>
+        {program && <ProgramView program={program} />}
+      </CardContent>
+    </Card>
+  )
+}
+
+function ProgramView({ program }) {
+  if (!program) return null
+  if (program.raw) return <pre className="text-xs text-neutral-300 whitespace-pre-wrap p-3 bg-neutral-950 rounded border border-neutral-800">{program.raw}</pre>
+  return (
+    <div className="space-y-3 text-sm">
+      <div className="flex flex-wrap gap-2">
+        {program.intensite && <Badge className="bg-red-500/20 text-red-300 border-red-500/40">Intensité: {program.intensite}</Badge>}
+        {program.duree_minutes && <Badge variant="secondary" className="bg-neutral-800">{program.duree_minutes} min</Badge>}
+        {program.focus && <Badge variant="secondary" className="bg-neutral-800">{program.focus}</Badge>}
+      </div>
+      {program.echauffement?.length > 0 && (
+        <Block title="Échauffement" items={program.echauffement.map(x => `${x.nom}${x.duree ? ` — ${x.duree}` : ''}${x.note ? ` (${x.note})` : ''}`)} />
+      )}
+      {program.corps_seance?.map((bloc, i) => (
+        <div key={i} className="border border-neutral-800 rounded-lg p-3 bg-neutral-950/50">
+          <div className="font-semibold text-orange-300 text-sm mb-2">{bloc.bloc}</div>
+          <div className="space-y-1.5">
+            {bloc.exercices?.map((ex, j) => (
+              <div key={j} className="text-xs text-neutral-300 flex items-start gap-2">
+                <ChevronRight className="h-3 w-3 mt-0.5 text-red-400 shrink-0" />
+                <div>
+                  <span className="font-medium text-neutral-100">{ex.nom}</span>
+                  <span className="text-neutral-400"> — {ex.series} × {ex.reps}{ex.charge ? ` @ ${ex.charge}` : ''}{ex.repos ? ` / repos ${ex.repos}` : ''}</span>
+                  {ex.note && <div className="text-neutral-500 italic">{ex.note}</div>}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      ))}
+      {program.retour_au_calme?.length > 0 && (
+        <Block title="Retour au calme" items={program.retour_au_calme.map(x => `${x.nom}${x.duree ? ` — ${x.duree}` : ''}`)} />
+      )}
+      {program.conseil_coach && (
+        <div className="p-3 bg-orange-500/10 border border-orange-500/30 rounded-lg text-orange-200 text-xs italic">“{program.conseil_coach}”</div>
+      )}
+      {program.attention && (
+        <div className="p-3 bg-red-500/10 border border-red-500/30 rounded-lg text-red-200 text-xs flex gap-2"><ShieldAlert className="h-4 w-4 shrink-0" /> {program.attention}</div>
+      )}
+    </div>
+  )
+}
+
+function Block({ title, items }) {
+  return (
+    <div>
+      <div className="text-xs uppercase text-neutral-400 tracking-widest mb-1">{title}</div>
+      <ul className="space-y-1 text-xs text-neutral-300">
+        {items.map((it, i) => <li key={i} className="flex gap-2"><span className="text-red-400">•</span>{it}</li>)}
+      </ul>
+    </div>
+  )
+}
+
+function VoiceFeedbackCard({ userId, lastProgram, sport }) {
+  const supabase = getSupabaseBrowser()
+  const [recording, setRecording] = useState(false)
+  const [transcript, setTranscript] = useState('')
+  const [loading, setLoading] = useState(false)
+  const [analysis, setAnalysis] = useState(null)
+  const recognitionRef = useRef(null)
+  const supported = useMemo(() => typeof window !== 'undefined' && (window.SpeechRecognition || window.webkitSpeechRecognition), [])
+
+  function toggleRecord() {
+    if (!supported) {
+      toast.error('Speech-to-text non supporté sur ce navigateur. Utilise Chrome mobile.')
+      return
+    }
+    if (recording) {
+      recognitionRef.current?.stop()
+      setRecording(false)
+      return
+    }
+    const SR = window.SpeechRecognition || window.webkitSpeechRecognition
+    const rec = new SR()
+    rec.lang = 'fr-FR'
+    rec.continuous = true
+    rec.interimResults = true
+    let finalText = transcript
+    rec.onresult = (event) => {
+      let interim = ''
+      for (let i = event.resultIndex; i < event.results.length; i++) {
+        const t = event.results[i][0].transcript
+        if (event.results[i].isFinal) finalText += t + ' '
+        else interim += t
+      }
+      setTranscript(finalText + interim)
+    }
+    rec.onerror = (e) => {
+      toast.error('Erreur micro: ' + e.error)
+      setRecording(false)
+    }
+    rec.onend = () => setRecording(false)
+    rec.start()
+    recognitionRef.current = rec
+    setRecording(true)
+  }
+
+  async function analyze() {
+    if (!transcript.trim()) return toast.error('Ressenti vide')
+    setLoading(true)
+    try {
+      const res = await fetch('/api/coach/feedback', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ transcript, last_program: lastProgram, sport }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.detail || data.error)
+      setAnalysis(data.feedback)
+      await supabase.from('session_feedback').insert({
+        user_id: userId, transcript, ai_analysis: data.feedback,
+      })
+      toast.success('Analyse terminée')
+    } catch (err) {
+      toast.error(err.message)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  return (
+    <Card className="bg-gradient-to-br from-neutral-900 to-red-950/20 border-neutral-800">
+      <CardHeader>
+        <div className="flex items-center gap-2">
+          <Mic className="h-5 w-5 text-red-400" />
+          <CardTitle className="text-base">Retour de séance vocal (RPA)</CardTitle>
+        </div>
+        <CardDescription>Parle ton ressenti — l'IA analyse et ajuste</CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        <div className="flex justify-center">
+          <button
+            onClick={toggleRecord}
+            className={`h-24 w-24 rounded-full flex items-center justify-center transition-all shadow-xl ${recording ? 'bg-red-500 animate-pulse shadow-red-500/50' : 'bg-gradient-to-br from-red-500 to-orange-500 hover:scale-105 shadow-red-500/30'}`}
+          >
+            {recording ? <MicOff className="h-10 w-10 text-white" /> : <Mic className="h-10 w-10 text-white" />}
+          </button>
+        </div>
+        <p className="text-center text-xs text-neutral-500">{recording ? 'Enregistrement en cours… parle librement' : 'Appuie pour dicter ton ressenti'}</p>
+        <Textarea
+          value={transcript}
+          onChange={(e) => setTranscript(e.target.value)}
+          placeholder="Ta transcription apparaîtra ici — tu peux aussi taper directement"
+          className="min-h-24 bg-neutral-950/80 border-neutral-800"
+        />
+        <div className="flex gap-2">
+          <Button onClick={analyze} disabled={loading || !transcript.trim()} className="flex-1 bg-gradient-to-r from-red-500 to-orange-500 hover:from-red-600 hover:to-orange-600 font-bold">
+            {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <><Sparkles className="h-4 w-4 mr-2" /> Analyser</>}
+          </Button>
+          <Button variant="outline" size="icon" onClick={() => { setTranscript(''); setAnalysis(null) }} className="border-neutral-700">
+            <Trash2 className="h-4 w-4" />
+          </Button>
+        </div>
+        {analysis && <FeedbackView f={analysis} />}
+      </CardContent>
+    </Card>
+  )
+}
+
+function FeedbackView({ f }) {
+  if (f?.raw) return <pre className="text-xs text-neutral-300 whitespace-pre-wrap p-3 bg-neutral-950 rounded border border-neutral-800">{f.raw}</pre>
+  return (
+    <div className="space-y-3 text-sm">
+      {f.resume && <div className="p-3 bg-neutral-950 border border-neutral-800 rounded-lg text-neutral-200 italic">{f.resume}</div>}
+      <div className="flex flex-wrap gap-2">
+        {f.charge_percue && <Badge className="bg-red-500/20 text-red-300 border-red-500/40">Charge: {f.charge_percue}</Badge>}
+        {f.drapeau_rouge && <Badge className="bg-red-600 text-white">⚠ Drapeau rouge</Badge>}
+      </div>
+      {f.questions_precises?.length > 0 && (
+        <div className="p-3 bg-orange-500/10 border border-orange-500/30 rounded-lg">
+          <div className="text-xs uppercase text-orange-300 tracking-widest mb-2">Le coach te demande</div>
+          <ul className="space-y-1.5 text-orange-100 text-xs">
+            {f.questions_precises.map((q, i) => <li key={i} className="flex gap-2"><ChevronRight className="h-3 w-3 mt-0.5 shrink-0" /> {q}</li>)}
+          </ul>
+        </div>
+      )}
+      {f.ajustements_prochaine_seance?.length > 0 && (
+        <Block title="Ajustements pour la prochaine" items={f.ajustements_prochaine_seance} />
+      )}
+      {f.points_attention?.length > 0 && <Block title="Points d'attention" items={f.points_attention} />}
+      {f.articulations?.length > 0 && (
+        <div>
+          <div className="text-xs uppercase text-neutral-400 tracking-widest mb-1">Articulations</div>
+          <div className="flex flex-wrap gap-1.5">
+            {f.articulations.map((a, i) => (
+              <Badge key={i} variant="outline" className={`border-neutral-700 ${a.gravite === 'elevee' ? 'bg-red-500/20 text-red-300' : a.gravite === 'moyenne' ? 'bg-orange-500/20 text-orange-300' : 'bg-neutral-800 text-neutral-300'}`}>
+                {a.zone}: {a.note}
+              </Badge>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function ImportCard({ userId, sport }) {
+  const supabase = getSupabaseBrowser()
+  const [url, setUrl] = useState('')
+  const [desc, setDesc] = useState('')
+  const [kind, setKind] = useState('video')
+  const [loading, setLoading] = useState(false)
+  const [analysis, setAnalysis] = useState(null)
+
+  async function run() {
+    if (!url && !desc) return toast.error('Colle un lien ou une description')
+    setLoading(true)
+    try {
+      const res = await fetch('/api/analyze/link', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url, description: desc, kind, sport }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.detail || data.error)
+      setAnalysis(data.analysis)
+      await supabase.from('imports').insert({
+        user_id: userId, source_type: kind, source_url: url, description: desc, ai_analysis: data.analysis,
+      })
+      toast.success('Séance structurée par Gemini 2.5 Pro')
+    } catch (err) {
+      toast.error(err.message)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  return (
+    <Card className="bg-gradient-to-br from-neutral-900 to-orange-950/20 border-neutral-800">
+      <CardHeader>
+        <div className="flex items-center gap-2">
+          <Link2 className="h-5 w-5 text-orange-400" />
+          <CardTitle className="text-base">Import / Analyse</CardTitle>
+        </div>
+        <CardDescription>Colle un lien YouTube/Insta ou décris un exercice</CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        <div className="grid grid-cols-2 gap-2">
+          <div className="space-y-1">
+            <Label className="text-xs text-neutral-400">Type</Label>
+            <Select value={kind} onValueChange={setKind}>
+              <SelectTrigger className="bg-neutral-950/80 border-neutral-800"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="video">Vidéo</SelectItem>
+                <SelectItem value="image">Image / Physique</SelectItem>
+                <SelectItem value="exercice">Exercice</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-1 col-span-1">
+            <Label className="text-xs text-neutral-400">URL</Label>
+            <Input value={url} onChange={(e) => setUrl(e.target.value)} placeholder="https://…" className="bg-neutral-950/80 border-neutral-800" />
+          </div>
+        </div>
+        <div className="space-y-1">
+          <Label className="text-xs text-neutral-400">Description / Contexte</Label>
+          <Textarea value={desc} onChange={(e) => setDesc(e.target.value)} placeholder="Ce que tu veux travailler, ce que tu vois dans la vidéo…" className="min-h-20 bg-neutral-950/80 border-neutral-800" />
+        </div>
+        <Button onClick={run} disabled={loading} className="w-full bg-gradient-to-r from-orange-500 to-red-500 hover:from-orange-600 hover:to-red-600 font-bold">
+          {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <><Sparkles className="h-4 w-4 mr-2" /> Structurer la séance</>}
+        </Button>
+        {analysis && <ImportView a={analysis} />}
+      </CardContent>
+    </Card>
+  )
+}
+
+function ImportView({ a }) {
+  if (a?.raw) return <pre className="text-xs text-neutral-300 whitespace-pre-wrap p-3 bg-neutral-950 rounded border border-neutral-800">{a.raw}</pre>
+  return (
+    <div className="space-y-3 text-sm">
+      {a.titre && <div className="font-bold text-orange-300">{a.titre}</div>}
+      <div className="flex flex-wrap gap-2">
+        {a.type_travail && <Badge className="bg-orange-500/20 text-orange-300 border-orange-500/40">{a.type_travail}</Badge>}
+      </div>
+      {a.objectif_transfert_mma && <div className="text-xs text-neutral-400 italic">Transfert: {a.objectif_transfert_mma}</div>}
+      {a.seance_structuree?.bloc_principal?.length > 0 && (
+        <div className="border border-neutral-800 rounded-lg p-3 bg-neutral-950/50">
+          <div className="text-xs uppercase text-orange-300 tracking-widest mb-2">Bloc principal</div>
+          <div className="space-y-1.5">
+            {a.seance_structuree.bloc_principal.map((ex, i) => (
+              <div key={i} className="text-xs text-neutral-300 flex items-start gap-2">
+                <ChevronRight className="h-3 w-3 mt-0.5 text-orange-400 shrink-0" />
+                <span><span className="font-medium text-neutral-100">{ex.exercice}</span> — {ex.series} × {ex.reps}{ex.tempo ? ` (tempo ${ex.tempo})` : ''}{ex.repos ? ` / repos ${ex.repos}` : ''}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+      {a.pieges_a_eviter?.length > 0 && <Block title="Pièges à éviter" items={a.pieges_a_eviter} />}
+      {a.progressions?.length > 0 && <Block title="Progressions" items={a.progressions} />}
+    </div>
+  )
+}
+
+function Dashboard({ user, onSignOut }) {
+  const supabase = getSupabaseBrowser()
+  const [sport, setSport] = useState('MMA')
+  const [latestHealth, setLatestHealth] = useState(null)
+  const [lastProgram, setLastProgram] = useState(null)
+
+  useEffect(() => {
+    (async () => {
+      const today = new Date().toISOString().slice(0, 10)
+      const { data: h } = await supabase.from('health_data').select('*').eq('user_id', user.id).eq('date', today).order('created_at', { ascending: false }).limit(1)
+      if (h?.[0]) setLatestHealth(h[0])
+      const { data: w } = await supabase.from('workouts').select('*').eq('user_id', user.id).order('created_at', { ascending: false }).limit(1)
+      if (w?.[0]) setLastProgram(w[0].program_json)
+      const { data: p } = await supabase.from('profiles').select('*').eq('id', user.id).maybeSingle()
+      if (p?.sport) setSport(p.sport)
+    })()
+  }, [user.id, supabase])
+
+  return (
+    <div className="min-h-screen bg-neutral-950 pb-24">
+      <header className="sticky top-0 z-40 backdrop-blur bg-neutral-950/80 border-b border-neutral-900">
+        <div className="max-w-md mx-auto px-4 py-3 flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <div className="h-9 w-9 rounded-xl bg-gradient-to-br from-red-500 to-orange-500 flex items-center justify-center">
+              <Flame className="h-5 w-5 text-white" />
+            </div>
+            <div>
+              <div className="text-sm font-black leading-none">COACH IA</div>
+              <div className="text-[10px] text-neutral-500 uppercase tracking-widest">{user.email?.split('@')[0]}</div>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <Select value={sport} onValueChange={async (v) => {
+              setSport(v)
+              await supabase.from('profiles').upsert({ id: user.id, sport: v })
+            }}>
+              <SelectTrigger className="w-32 h-9 bg-neutral-900 border-neutral-800 text-xs"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                {SPORTS.map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}
+              </SelectContent>
+            </Select>
+            <Button variant="ghost" size="icon" onClick={onSignOut} className="h-9 w-9"><LogOut className="h-4 w-4" /></Button>
+          </div>
+        </div>
+      </header>
+
+      <main className="max-w-md mx-auto px-4 py-4">
+        <Tabs defaultValue="today" className="w-full">
+          <TabsList className="grid grid-cols-3 bg-neutral-900 mb-4">
+            <TabsTrigger value="today" className="data-[state=active]:bg-red-500 data-[state=active]:text-white">
+              <Flame className="h-4 w-4 mr-1" /> Aujourd&apos;hui
+            </TabsTrigger>
+            <TabsTrigger value="rpa" className="data-[state=active]:bg-red-500 data-[state=active]:text-white">
+              <Mic className="h-4 w-4 mr-1" /> RPA
+            </TabsTrigger>
+            <TabsTrigger value="import" className="data-[state=active]:bg-red-500 data-[state=active]:text-white">
+              <Link2 className="h-4 w-4 mr-1" /> Import
+            </TabsTrigger>
+          </TabsList>
+
+          <TabsContent value="today" className="space-y-4 mt-0">
+            <HealthCard userId={user.id} latest={latestHealth} onSaved={setLatestHealth} />
+            <ProgramCard userId={user.id} sport={sport} latestHealth={latestHealth} onNewProgram={setLastProgram} />
+          </TabsContent>
+
+          <TabsContent value="rpa" className="space-y-4 mt-0">
+            <VoiceFeedbackCard userId={user.id} lastProgram={lastProgram} sport={sport} />
+          </TabsContent>
+
+          <TabsContent value="import" className="space-y-4 mt-0">
+            <ImportCard userId={user.id} sport={sport} />
+          </TabsContent>
+        </Tabs>
+      </main>
+    </div>
+  )
+}
+
+export default function App() {
+  const [user, setUser] = useState(null)
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    const supabase = getSupabaseBrowser()
+    supabase.auth.getSession().then(({ data }) => {
+      setUser(data.session?.user ?? null)
+      setLoading(false)
+    })
+    const { data: sub } = supabase.auth.onAuthStateChange((_e, session) => {
+      setUser(session?.user ?? null)
+    })
+    return () => sub.subscription.unsubscribe()
+  }, [])
+
+  async function signOut() {
+    const supabase = getSupabaseBrowser()
+    await supabase.auth.signOut()
+    setUser(null)
+  }
+
+  if (loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-neutral-950">
+        <Loader2 className="h-8 w-8 animate-spin text-red-500" />
+      </div>
+    )
+  }
+
+  if (!user) return <AuthGate onAuthed={setUser} />
+  return <Dashboard user={user} onSignOut={signOut} />
+}
