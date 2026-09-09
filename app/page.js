@@ -308,12 +308,14 @@ function MetricInput({ icon, label, value, onChange, placeholder }) {
   )
 }
 
-function ProgramCard({ userId, sport, latestHealth, recentWorkouts = [], onNewProgram }) {
+function ProgramCard({ userId, sport, latestHealth, recentWorkouts = [], initialProgram = null, onNewProgram }) {
   const supabase = getSupabaseBrowser()
   const [loading, setLoading] = useState(false)
-  const [program, setProgram] = useState(null)
+  const [program, setProgram] = useState(initialProgram)
   const [envies, setEnvies] = useState('')
   const [joints, setJoints] = useState('')
+
+  useEffect(() => { if (initialProgram) setProgram(initialProgram) }, [initialProgram])
 
   async function generate() {
     setLoading(true)
@@ -1448,23 +1450,45 @@ function Dashboard({ user, onSignOut }) {
   const [latestHealth, setLatestHealth] = useState(null)
   const [lastProgram, setLastProgram] = useState(null)
   const [recentWorkouts, setRecentWorkouts] = useState([])
+  const [autoBadge, setAutoBadge] = useState(false)
+  const lastAutoIdRef = useRef(null)
+
+  async function refreshAll() {
+    const today = new Date().toISOString().slice(0, 10)
+    const { data: h } = await supabase.from('health_data').select('*').eq('user_id', user.id).eq('date', today).order('created_at', { ascending: false }).limit(1)
+    if (h?.[0]) setLatestHealth(h[0])
+    const { data: w } = await supabase.from('workouts').select('*').eq('user_id', user.id).order('created_at', { ascending: false }).limit(7)
+    setRecentWorkouts(w || [])
+    // Prefer today's auto workout
+    const todayAuto = (w || []).find(x => x.date === today && x.type_seance === 'auto')
+    const anyLast = (w || [])[0]
+    const picked = todayAuto || anyLast
+    if (picked?.program_json) {
+      setLastProgram(picked.program_json)
+      if (todayAuto && lastAutoIdRef.current && lastAutoIdRef.current !== todayAuto.id) {
+        setAutoBadge(true)
+        toast.success('🤖 Sync auto : programme du jour ajusté par ONYX', { duration: 6000 })
+      }
+      if (todayAuto) lastAutoIdRef.current = todayAuto.id
+    }
+  }
 
   useEffect(() => {
     (async () => {
-      const today = new Date().toISOString().slice(0, 10)
-      const { data: h } = await supabase.from('health_data').select('*').eq('user_id', user.id).eq('date', today).order('created_at', { ascending: false }).limit(1)
-      if (h?.[0]) setLatestHealth(h[0])
-      const { data: w } = await supabase.from('workouts').select('*').eq('user_id', user.id).order('created_at', { ascending: false }).limit(7)
-      if (w?.[0]) setLastProgram(w[0].program_json)
-      setRecentWorkouts(w || [])
+      await refreshAll()
       const { data: p } = await supabase.from('profiles').select('*').eq('id', user.id).maybeSingle()
       if (p?.sport) setSport(p.sport)
-      // Request notification permission proactively
       if (typeof Notification !== 'undefined' && Notification.permission === 'default') {
         try { await Notification.requestPermission() } catch {}
       }
     })()
-  }, [user.id, supabase])
+    // Auto-refresh every 60s so a fresh Apple Health sync appears without reload
+    const iv = setInterval(refreshAll, 60000)
+    // Also refresh on focus (user opens the tab in the morning)
+    const onFocus = () => refreshAll()
+    window.addEventListener('focus', onFocus)
+    return () => { clearInterval(iv); window.removeEventListener('focus', onFocus) }
+  }, [user.id]) // eslint-disable-line
 
   return (
     <div className="min-h-screen bg-neutral-950 pb-24">
@@ -1513,9 +1537,16 @@ function Dashboard({ user, onSignOut }) {
           </TabsList>
 
           <TabsContent value="today" className="space-y-4 mt-0">
+            {autoBadge && (
+              <div className="flex items-center gap-2 p-2.5 rounded-lg bg-violet-500/10 border border-violet-500/40 text-xs text-violet-200">
+                <Sparkles className="h-4 w-4 text-violet-400 shrink-0" />
+                <span className="flex-1">🤖 ONYX a ajusté ta séance depuis ta sync Apple Health du matin</span>
+                <button onClick={() => setAutoBadge(false)} className="text-violet-300 hover:text-white">✕</button>
+              </div>
+            )}
             <FormScoreCard latestHealth={latestHealth} />
             <HealthCard userId={user.id} latest={latestHealth} onSaved={setLatestHealth} />
-            <ProgramCard userId={user.id} sport={sport} latestHealth={latestHealth} recentWorkouts={recentWorkouts} onNewProgram={setLastProgram} />
+            <ProgramCard userId={user.id} sport={sport} latestHealth={latestHealth} recentWorkouts={recentWorkouts} initialProgram={lastProgram} onNewProgram={setLastProgram} />
             <NutritionCard userId={user.id} />
           </TabsContent>
 

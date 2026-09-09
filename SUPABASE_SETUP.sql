@@ -201,3 +201,85 @@ end;
 $$;
 
 grant execute on function public.apple_health_sync(uuid, numeric, numeric, numeric, integer, numeric) to anon, authenticated;
+
+-- =====================================================================
+-- v6: Sync Bilan Auto — extend apple_health_sync to return user context,
+-- and add save_auto_workout RPC so the Next.js server can persist the
+-- AI-generated program without needing a Supabase session.
+-- =====================================================================
+drop function if exists public.apple_health_sync(uuid, numeric, numeric, numeric, integer, numeric);
+create or replace function public.apple_health_sync(
+  p_token uuid,
+  p_sleep_hours numeric default null,
+  p_hrv numeric default null,
+  p_recovery_score numeric default null,
+  p_fatigue integer default null,
+  p_resting_hr numeric default null
+) returns jsonb
+language plpgsql
+security definer set search_path = public
+as $$
+declare
+  v_user_id uuid;
+  v_today date := current_date;
+  v_profile jsonb;
+  v_recent jsonb;
+begin
+  select id into v_user_id from public.profiles where sync_token = p_token;
+  if v_user_id is null then
+    return jsonb_build_object('ok', false, 'error', 'invalid_token');
+  end if;
+
+  delete from public.health_data where user_id = v_user_id and date = v_today;
+  insert into public.health_data (user_id, date, sleep_hours, hrv, recovery_score, fatigue, charge, notes)
+  values (v_user_id, v_today, p_sleep_hours, p_hrv, p_recovery_score, p_fatigue, p_resting_hr, 'Synchronisé depuis Apple Health');
+
+  select to_jsonb(p) - 'sync_token' into v_profile from public.profiles p where p.id = v_user_id;
+
+  select coalesce(jsonb_agg(row_to_json(w)), '[]'::jsonb) into v_recent
+  from (
+    select date, sport, type_seance,
+           program_json->>'intensite' as intensite,
+           program_json->>'focus' as focus,
+           program_json->>'duree_minutes' as duree
+    from public.workouts
+    where user_id = v_user_id and type_seance <> 'week_plan'
+    order by created_at desc
+    limit 5
+  ) w;
+
+  return jsonb_build_object(
+    'ok', true,
+    'user_id', v_user_id,
+    'date', v_today,
+    'profile', v_profile,
+    'recent_sessions', v_recent
+  );
+end;
+$$;
+
+grant execute on function public.apple_health_sync(uuid, numeric, numeric, numeric, integer, numeric) to anon, authenticated;
+
+create or replace function public.save_auto_workout(
+  p_token uuid,
+  p_sport text,
+  p_program jsonb
+) returns jsonb
+language plpgsql
+security definer set search_path = public
+as $$
+declare
+  v_user_id uuid;
+  v_today date := current_date;
+begin
+  select id into v_user_id from public.profiles where sync_token = p_token;
+  if v_user_id is null then
+    return jsonb_build_object('ok', false, 'error', 'invalid_token');
+  end if;
+  delete from public.workouts where user_id = v_user_id and date = v_today and type_seance in ('auto', 'ia_auto');
+  insert into public.workouts (user_id, date, sport, type_seance, program_json, status)
+  values (v_user_id, v_today, coalesce(p_sport, 'MMA'), 'auto', p_program, 'planifie');
+  return jsonb_build_object('ok', true);
+end;
+$$;
+grant execute on function public.save_auto_workout(uuid, text, jsonb) to anon, authenticated;

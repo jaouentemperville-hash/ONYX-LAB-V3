@@ -25,9 +25,7 @@ async function handleRoute(request, { params }) {
     }
 
     // ==============================
-    // Apple Health Sync (via Apple Shortcut)
-    // Accepts POST body OR GET query params so Apple Shortcuts can use either.
-    // Body: { token, sleep_hours?, hrv?, recovery_score?, fatigue?, resting_hr? }
+    // Apple Health Sync + AUTO PROGRAM GENERATION
     // ==============================
     if (route === '/health/sync' && (method === 'POST' || method === 'GET')) {
       let params = {}
@@ -39,6 +37,7 @@ async function handleRoute(request, { params }) {
       }
       const token = params.token || params.t
       if (!token) return cors(NextResponse.json({ error: 'token required' }, { status: 400 }))
+      const autoProgram = String(params.auto_program ?? params.auto ?? 'true') !== 'false'
 
       const num = (v) => (v === undefined || v === null || v === '' ? null : Number(v))
       const payload = {
@@ -52,19 +51,72 @@ async function handleRoute(request, { params }) {
 
       const supaUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
       const supaKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
-      const res = await fetch(`${supaUrl}/rest/v1/rpc/apple_health_sync`, {
+      const rpcRes = await fetch(`${supaUrl}/rest/v1/rpc/apple_health_sync`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'apikey': supaKey,
-          'Authorization': `Bearer ${supaKey}`,
-        },
+        headers: { 'Content-Type': 'application/json', 'apikey': supaKey, 'Authorization': `Bearer ${supaKey}` },
         body: JSON.stringify(payload),
       })
-      const data = await res.json().catch(() => ({}))
-      if (!res.ok) return cors(NextResponse.json({ error: 'sync failed', detail: data }, { status: 500 }))
-      if (data?.ok === false) return cors(NextResponse.json({ error: data.error || 'invalid_token' }, { status: 401 }))
-      return cors(NextResponse.json({ ok: true, synced: payload, ...data }))
+      const rpcData = await rpcRes.json().catch(() => ({}))
+      if (!rpcRes.ok) return cors(NextResponse.json({ error: 'sync failed', detail: rpcData }, { status: 500 }))
+      if (rpcData?.ok === false) return cors(NextResponse.json({ error: rpcData.error || 'invalid_token' }, { status: 401 }))
+
+      let program = null
+      let programError = null
+      if (autoProgram) {
+        try {
+          const profile = rpcData?.profile || {}
+          const sport = profile.sport || 'MMA'
+          const level = profile.niveau || 'intermédiaire'
+          const goals = profile.objectifs || ''
+          const recent_sessions = rpcData?.recent_sessions || []
+
+          const system = `Tu es un coach ELITE (athlétisation, MMA, No-Gi). Tu décides SEANCE ou REPOS selon la récupération et la charge récente, tu inclus étirements + durée + notification courte. Tu réponds STRICTEMENT en JSON français.`
+          const prompt = `Sync AUTO du matin — décide séance ou repos pour aujourd'hui.
+
+SPORT: ${sport} · NIVEAU: ${level} · OBJECTIFS: ${goals || 'polyvalence'}
+HEALTH: sommeil=${payload.p_sleep_hours ?? 'nr'}h HRV=${payload.p_hrv ?? 'nr'} recup=${payload.p_recovery_score ?? 'nr'} fatigue=${payload.p_fatigue ?? 'nr'} FC_repos=${payload.p_resting_hr ?? 'nr'}
+DERNIÈRES SÉANCES: ${JSON.stringify(recent_sessions).slice(0, 1500)}
+
+RÈGLES: 2+ séances fortes consécutives OR recup<40 OR fatigue>7 → repos actif. Bonne récup → forte. Sinon modérée. Durée cohérente.
+
+JSON strict:
+{
+  "date": "YYYY-MM-DD",
+  "type": "seance|repos_actif|repos_complet",
+  "intensite": "repos|légère|modérée|forte",
+  "focus": "titre court",
+  "duree_minutes": 60,
+  "justification_choix": "pourquoi",
+  "echauffement": [{"nom":"...","duree":"5 min","note":"..."}],
+  "corps_seance": [{"bloc":"...","exercices":[{"nom":"...","series":"3","reps":"8","charge":"70%","repos":"90s","note":"..."}]}],
+  "etirements": [{"nom":"...","duree":"30s x2","zone":"..."}],
+  "retour_au_calme": [{"nom":"...","duree":"..."}],
+  "conseil_coach": "...",
+  "attention": "...",
+  "notification": "message court (max 80 car.)"
+}`
+          const raw = await chat({ system, prompt })
+          program = extractJson(raw)
+
+          if (program) {
+            await fetch(`${supaUrl}/rest/v1/rpc/save_auto_workout`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json', 'apikey': supaKey, 'Authorization': `Bearer ${supaKey}` },
+              body: JSON.stringify({ p_token: token, p_sport: sport, p_program: program }),
+            })
+          }
+        } catch (e) {
+          programError = String(e?.message || e)
+        }
+      }
+
+      return cors(NextResponse.json({
+        ok: true,
+        synced: payload,
+        auto_program: !!program,
+        program,
+        program_error: programError,
+      }))
     }
 
     // ==============================
