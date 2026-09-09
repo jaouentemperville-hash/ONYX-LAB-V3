@@ -132,6 +132,7 @@ JSON strict:
         taille_cm = null,
         club_schedule = [],
         one_rm = {},
+        is_club_day = false,
         hrv = null,
         sleep_hours = null,
         recovery_score = null,
@@ -155,7 +156,8 @@ NIVEAU: ${level}
 OBJECTIFS: ${goals || 'polyvalence combat'}
 POIDS DE CORPS: ${poids_kg ? poids_kg + ' kg' : 'non renseigné'} ${taille_cm ? '· TAILLE: ' + taille_cm + ' cm' : ''}
 1RM CONNUS (kg): ${JSON.stringify(one_rm)} ${Object.keys(one_rm || {}).length ? '(utilise ces 1RM pour calculer les charges kg RÉELLES sur ces exercices)' : ''}
-HORAIRES CLUB: ${JSON.stringify(club_schedule)} ${(club_schedule || []).length ? '(intègre ces créneaux si compatibles avec aujourd\'hui)' : ''}
+HORAIRES CLUB: ${JSON.stringify(club_schedule)}
+JOUR CLUB AUJOURD'HUI: ${is_club_day ? 'OUI (entraînement collectif prévu au club)' : 'NON (pas de club aujourd\'hui)'} ${(club_schedule || []).length ? '(intègre ces créneaux si compatibles avec aujourd\'hui)' : ''}
 ENVIES DU JOUR: ${envies || 'aucune préférence'}
 ARTICULATIONS SENSIBLES: ${joints || 'aucune'}
 
@@ -168,10 +170,12 @@ DONNÉES DE RÉCUPÉRATION:
 DERNIÈRES SÉANCES (7 derniers jours): ${JSON.stringify(recent_sessions).slice(0, 1500)}
 
 RÈGLES:
-- 2+ séances "forte" consécutives OU récup <40 OU fatigue >7 → REPOS ACTIF (mobilité + étirements)
-- Bonne récup (HRV bon, sommeil>7h, fatigue<5) et pas de séance dure hier → intensité FORTE
-- Sinon → MODÉRÉE
-- Durée cohérente: 30-45 min repos actif / 60 min modéré / 75-90 min forte
+- **JOUR CLUB (${is_club_day ? 'aujourd\'hui' : 'non'})** : si c'est un jour club (MMA/No-Gi/JJB au club), la charge est déjà élevée en soirée. Prescris UNIQUEMENT une séance LIGHT complémentaire (30-45 min max) : mobilité, activation, gainage anti-blessures, technique légère. AUCUN travail lourd ni HIIT.
+- Sinon (hors club) : athlétisation classique adaptée à la récupération.
+- Ajuste la charge hebdomadaire globale : plus de séances club → moins de volume perso pour maximiser la récup.
+- 2+ séances "forte" consécutives OU récup <40 OU fatigue >7 → REPOS ACTIF
+- Bonne récup + hors club + pas de séance dure hier → intensité FORTE
+- Durée cohérente: 30-45 min light/repos actif / 60 min modéré / 75-90 min forte
 - IMPORTANT: si 1RM est renseigné pour l'exercice (squat/dc/sdt/etc), exprime la charge en KG RÉEL calculé sur le 1RM (ex: "70% de 140kg → 98 kg").
 - Sinon si poids de corps est renseigné pour un exercice au poids de corps ou % du poids, exprime en KG RÉEL.
 - Sinon en pourcentage.
@@ -495,6 +499,41 @@ Réponds strictement en JSON:
       })
       const json = extractJson(raw)
       return cors(NextResponse.json({ analysis: json || { raw }, raw }))
+    }
+
+    // ==============================
+    // Coach Chat — conversation contextuelle sur la séance du jour
+    // ==============================
+    if (route === '/coach/chat' && method === 'POST') {
+      const body = await request.json().catch(() => ({}))
+      const { messages = [], context = null, sport = 'MMA' } = body
+      const last = messages[messages.length - 1]
+      if (!last?.content?.trim()) return cors(NextResponse.json({ error: 'message required' }, { status: 400 }))
+
+      const system = `Tu es ONYX, coach IA sport de combat + athlétisation.
+Tu réponds de façon COURTE, PRAGMATIQUE, TECHNIQUE et bienveillante (max 4-6 phrases).
+Tu adresses toujours l'athlète en "tu".
+Tu n'utilises PAS de caractères "@". Tu ne mets PAS de markdown lourd (juste tirets + emojis autorisés).
+Tu réponds en TEXTE LIBRE (pas de JSON).`
+
+      const history = messages.slice(-8).map(m => `${m.role === 'user' ? 'ATHLÈTE' : 'COACH'}: ${m.content}`).join('\n')
+      const prompt = `SPORT: ${sport}
+CONTEXTE (séance en cours ou question): ${JSON.stringify(context || {}).slice(0, 1500)}
+
+CONVERSATION:
+${history}
+
+Réponds au dernier message de l'athlète (${last.content.slice(0, 300)}) en tant que COACH.`
+
+      const raw = await chat({ system, prompt, model: 'gemini-3.6-flash' })
+      let reply = String(raw || '').trim()
+      // Extract from any JSON wrapper (reply/text/response/message/content)
+      try {
+        const parsed = JSON.parse(reply)
+        reply = parsed?.reply || parsed?.text || parsed?.response || parsed?.message || parsed?.content || reply
+      } catch {}
+      reply = String(reply).replaceAll('@', 'à').replaceAll('```', '').trim()
+      return cors(NextResponse.json({ reply }))
     }
 
     // ==============================

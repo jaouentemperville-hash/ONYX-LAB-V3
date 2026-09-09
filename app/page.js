@@ -415,7 +415,7 @@ function OneRmCard({ userId, onChange }) {
   )
 }
 
-function WeekStrip({ userId, sport, onDayClick }) {
+function WeekStrip({ userId, sport, profile, selectedDate, onDayClick }) {
   const supabase = getSupabaseBrowser()
   const [plan, setPlan] = useState(null)
 
@@ -427,34 +427,68 @@ function WeekStrip({ userId, sport, onDayClick }) {
     })()
   }, [userId, supabase])
 
-  if (!plan?.week?.length) return null
+  // Build 7 days from today even if no plan
+  const days = []
+  const clubKeys = new Set((profile?.club_schedule || []).map(s => s.day))
+  const DAY_KEYS = ['dim', 'lun', 'mar', 'mer', 'jeu', 'ven', 'sam']
+  const DAY_LABELS = ['DIM', 'LUN', 'MAR', 'MER', 'JEU', 'VEN', 'SAM']
+  for (let i = 0; i < 7; i++) {
+    const d = new Date(); d.setDate(d.getDate() + i)
+    const dateStr = d.toISOString().slice(0, 10)
+    const dayKey = DAY_KEYS[d.getDay()]
+    const planDay = plan?.week?.find(x => x.date === dateStr)
+    days.push({
+      date: dateStr,
+      jour: DAY_LABELS[d.getDay()],
+      dateNum: d.getDate(),
+      isClub: clubKeys.has(dayKey),
+      isToday: dateStr === new Date().toISOString().slice(0, 10),
+      isSelected: dateStr === selectedDate,
+      type: planDay?.type,
+      duree: planDay?.duree_minutes,
+      focus: planDay?.focus,
+    })
+  }
 
   return (
     <Card className="bg-neutral-900/60 border-neutral-800">
       <CardHeader className="pb-2">
-        <div className="flex items-center gap-2">
-          <CalendarDays className="h-4 w-4 text-violet-400" />
-          <CardTitle className="text-xs uppercase tracking-widest text-neutral-300">Ta semaine</CardTitle>
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <CalendarDays className="h-4 w-4 text-violet-400" />
+            <CardTitle className="text-xs uppercase tracking-widest text-neutral-300">Ta semaine</CardTitle>
+          </div>
+          {selectedDate && selectedDate !== new Date().toISOString().slice(0, 10) && (
+            <Button size="sm" variant="ghost" onClick={() => onDayClick?.({ date: new Date().toISOString().slice(0, 10) })} className="h-6 text-[10px] text-violet-300">
+              Aujourd&apos;hui →
+            </Button>
+          )}
         </div>
       </CardHeader>
       <CardContent className="pb-3">
-        <div className="flex gap-1.5 overflow-x-auto pb-1">
-          {plan.week.slice(0, 7).map((d, i) => {
-            const isToday = d.date === new Date().toISOString().slice(0, 10)
+        <div className="grid grid-cols-7 gap-1">
+          {days.map((d, i) => {
             const isRest = String(d.type || '').startsWith('repos')
-            const icon = isRest ? (d.type === 'repos_complet' ? '💤' : '🧘') : '⚡'
+            const icon = d.type ? (isRest ? (d.type === 'repos_complet' ? '💤' : '🧘') : '⚡') : '·'
             return (
               <button
                 key={i}
                 onClick={() => onDayClick?.(d)}
-                className={`shrink-0 w-16 rounded-lg p-2 border text-center transition ${isToday ? 'bg-gradient-to-b from-violet-600 to-fuchsia-600 border-violet-400 text-white' : isRest ? 'bg-neutral-950 border-neutral-800 text-neutral-400' : 'bg-neutral-900 border-neutral-800 text-neutral-200 hover:border-violet-500/50'}`}
+                className={`relative rounded-lg p-1.5 border text-center transition ${d.isSelected ? 'bg-gradient-to-b from-violet-600 to-fuchsia-600 border-violet-400 text-white shadow-lg shadow-violet-500/30' : d.isToday ? 'bg-neutral-900 border-violet-500/60 text-violet-200' : isRest ? 'bg-neutral-950 border-neutral-800 text-neutral-500' : 'bg-neutral-900 border-neutral-800 text-neutral-300 hover:border-violet-500/50'}`}
               >
-                <div className="text-[9px] font-bold uppercase opacity-80">{d.jour}</div>
-                <div className="text-lg leading-none my-1">{icon}</div>
-                <div className="text-[9px] opacity-90">{d.duree_minutes || 0}m</div>
+                <div className="text-[8px] font-bold uppercase opacity-70">{d.jour}</div>
+                <div className="text-xs font-bold">{d.dateNum}</div>
+                <div className="text-sm leading-none mt-0.5">{icon}</div>
+                {d.isClub && <span className="absolute top-0.5 right-0.5 h-1.5 w-1.5 rounded-full bg-fuchsia-400 ring-1 ring-fuchsia-400/40" title="Jour club" />}
               </button>
             )
           })}
+        </div>
+        <div className="flex items-center justify-center gap-3 mt-2 text-[9px] text-neutral-500">
+          <span className="flex items-center gap-1"><span className="h-1.5 w-1.5 rounded-full bg-fuchsia-400" /> Jour club</span>
+          <span>⚡ Séance</span>
+          <span>🧘 Repos actif</span>
+          <span>💤 Repos</span>
         </div>
       </CardContent>
     </Card>
@@ -918,14 +952,93 @@ function SessionStatusButtons({ userId, sport, latestHealth, recentWorkouts, onD
   )
 }
 
-function ProgramCard({ userId, sport, latestHealth, profile = null, oneRm = {}, recentWorkouts = [], initialProgram = null, onNewProgram }) {
+function CoachChatSheet({ program, sport }) {
+  const [open, setOpen] = useState(false)
+  const [messages, setMessages] = useState([])
+  const [input, setInput] = useState('')
+  const [loading, setLoading] = useState(false)
+  const scrollRef = useRef(null)
+
+  useEffect(() => {
+    if (open && messages.length === 0) {
+      setMessages([{ role: 'assistant', content: `Salut ! Je suis ONYX 🧬 · Pose-moi n'importe quelle question sur ta séance du jour (exécution, alternatives, douleurs, tempo…).` }])
+    }
+  }, [open]) // eslint-disable-line
+
+  useEffect(() => {
+    if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight
+  }, [messages, loading])
+
+  async function send() {
+    const text = input.trim()
+    if (!text || loading) return
+    const next = [...messages, { role: 'user', content: text }]
+    setMessages(next); setInput(''); setLoading(true)
+    try {
+      const res = await fetch('/api/coach/chat', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ messages: next, context: program, sport }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.detail || data.error)
+      setMessages([...next, { role: 'assistant', content: data.reply || '(réponse vide)' }])
+    } catch (err) {
+      setMessages([...next, { role: 'assistant', content: '⚠️ ' + err.message }])
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  return (
+    <Sheet open={open} onOpenChange={setOpen}>
+      <SheetTrigger asChild>
+        <Button variant="outline" className="w-full border-fuchsia-500/50 hover:bg-fuchsia-900/30 mt-2">
+          <Sparkles className="h-4 w-4 mr-2 text-fuchsia-400" /> 💬 Poser une question au coach
+        </Button>
+      </SheetTrigger>
+      <SheetContent side="bottom" className="h-[85vh] bg-neutral-950 border-neutral-800 p-0 flex flex-col">
+        <SheetHeader className="p-4 border-b border-neutral-800 shrink-0">
+          <SheetTitle className="flex items-center gap-2 text-left">
+            <div className="h-8 w-8 rounded-full bg-gradient-to-br from-violet-500 to-fuchsia-500 flex items-center justify-center text-sm">🧬</div>
+            <span>ONYX Coach</span>
+          </SheetTitle>
+          <SheetDescription className="text-left text-xs">Réponses courtes et pragmatiques · contexte séance du jour</SheetDescription>
+        </SheetHeader>
+        <div ref={scrollRef} className="flex-1 overflow-y-auto p-4 space-y-3">
+          {messages.map((m, i) => (
+            <div key={i} className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+              <div className={`max-w-[85%] px-3 py-2 rounded-2xl text-sm ${m.role === 'user' ? 'bg-gradient-to-br from-violet-500 to-fuchsia-500 text-white rounded-br-sm' : 'bg-neutral-900 border border-neutral-800 text-neutral-100 rounded-bl-sm'}`}>
+                {m.content}
+              </div>
+            </div>
+          ))}
+          {loading && (
+            <div className="flex justify-start">
+              <div className="max-w-[85%] px-3 py-2 rounded-2xl bg-neutral-900 border border-neutral-800 text-neutral-400 text-sm flex items-center gap-2">
+                <Loader2 className="h-3.5 w-3.5 animate-spin" /> ONYX réfléchit…
+              </div>
+            </div>
+          )}
+        </div>
+        <div className="border-t border-neutral-800 p-3 shrink-0 flex gap-2">
+          <Input value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && send()} placeholder="Ta question…" className="flex-1 bg-neutral-900 border-neutral-800" disabled={loading} />
+          <Button onClick={send} disabled={loading || !input.trim()} className="bg-gradient-to-r from-violet-500 to-fuchsia-500 hover:from-violet-600 hover:to-fuchsia-600 font-bold">
+            <ChevronRight className="h-4 w-4" />
+          </Button>
+        </div>
+      </SheetContent>
+    </Sheet>
+  )
+}
+
+function ProgramCard({ userId, sport, latestHealth, profile = null, oneRm = {}, recentWorkouts = [], initialProgram = null, selectedDate = null, isClubDay = false, onNewProgram }) {
   const supabase = getSupabaseBrowser()
   const [loading, setLoading] = useState(false)
   const [program, setProgram] = useState(initialProgram)
   const [envies, setEnvies] = useState('')
   const [joints, setJoints] = useState('')
 
-  useEffect(() => { if (initialProgram) setProgram(initialProgram) }, [initialProgram])
+  useEffect(() => { setProgram(initialProgram) }, [initialProgram])
 
   async function generate() {
     setLoading(true)
@@ -940,6 +1053,7 @@ function ProgramCard({ userId, sport, latestHealth, profile = null, oneRm = {}, 
         taille_cm: profile?.taille_cm || null,
         club_schedule: profile?.club_schedule || [],
         one_rm: oneRm || {},
+        is_club_day: isClubDay,
         hrv: latestHealth?.hrv ?? null,
         sleep_hours: latestHealth?.sleep_hours ?? null,
         recovery_score: latestHealth?.recovery_score ?? null,
@@ -1022,6 +1136,7 @@ function ProgramCard({ userId, sport, latestHealth, profile = null, oneRm = {}, 
                 <Eye className="h-4 w-4 mr-2" /> Ouvrir en détail (avec vidéos)
               </Button>
             </SessionDetailSheet>
+            <CoachChatSheet program={program} sport={sport} />
           </>
         )}
         <SessionStatusButtons
@@ -2185,6 +2300,9 @@ function ProgressPhotosCard({ userId, sport, profile }) {
   const [loading, setLoading] = useState(false)
   const [comparing, setComparing] = useState(false)
   const [comparison, setComparison] = useState(null)
+  const [compareMode, setCompareMode] = useState(false)
+  const [selA, setSelA] = useState(null)
+  const [selB, setSelB] = useState(null)
   const progressRef = useRef(null)
   const targetRef = useRef(null)
 
@@ -2278,18 +2396,63 @@ function ProgressPhotosCard({ userId, sport, profile }) {
 
         {progressPhotos.length > 0 && (
           <div>
-            <div className="text-[10px] uppercase text-neutral-500 tracking-widest mb-1.5">Historique ({progressPhotos.length})</div>
-            <div className="flex gap-2 overflow-x-auto pb-1">
-              {progressPhotos.map(p => (
-                <div key={p.id} className="relative shrink-0 group">
-                  <img src={p.image_data} alt={p.date} className="h-24 w-16 object-cover rounded-lg border border-neutral-800" />
-                  <div className="absolute bottom-0 left-0 right-0 text-[9px] text-white text-center bg-black/70 py-0.5">
-                    {new Date(p.date).toLocaleDateString('fr-FR', { day: '2-digit', month: 'short' })}
-                  </div>
-                  <button onClick={() => del(p.id)} className="absolute top-0.5 right-0.5 h-5 w-5 rounded-full bg-red-500/80 text-white text-[10px] opacity-0 group-hover:opacity-100 transition">✕</button>
-                </div>
-              ))}
+            <div className="flex items-center justify-between mb-1.5">
+              <div className="text-[10px] uppercase text-neutral-500 tracking-widest">Historique ({progressPhotos.length})</div>
+              {progressPhotos.length >= 2 && (
+                <button onClick={() => { setCompareMode(!compareMode); setSelA(null); setSelB(null) }} className="text-[10px] text-fuchsia-300 hover:text-fuchsia-200">
+                  {compareMode ? '✕ Fermer' : '📊 Comparer 2 photos'}
+                </button>
+              )}
             </div>
+            {compareMode && (
+              <div className="mb-2 p-2 rounded-lg bg-fuchsia-500/10 border border-fuchsia-500/30 text-[11px] text-fuchsia-200">
+                {!selA && 'Sélectionne la photo AVANT (la plus ancienne)'}
+                {selA && !selB && 'Maintenant la photo APRÈS (la plus récente)'}
+                {selA && selB && '✅ Comparaison affichée ci-dessous'}
+              </div>
+            )}
+            <div className="flex gap-2 overflow-x-auto pb-1">
+              {progressPhotos.map(p => {
+                const isA = selA?.id === p.id, isB = selB?.id === p.id
+                return (
+                  <div key={p.id} className="relative shrink-0 group">
+                    <img
+                      src={p.image_data} alt={p.date}
+                      onClick={() => {
+                        if (!compareMode) return
+                        if (!selA) setSelA(p)
+                        else if (!selB && selA.id !== p.id) setSelB(p)
+                        else { setSelA(p); setSelB(null) }
+                      }}
+                      className={`h-24 w-16 object-cover rounded-lg border transition ${compareMode ? 'cursor-pointer' : ''} ${isA ? 'border-fuchsia-400 ring-2 ring-fuchsia-400' : isB ? 'border-violet-400 ring-2 ring-violet-400' : 'border-neutral-800'}`}
+                    />
+                    <div className="absolute bottom-0 left-0 right-0 text-[9px] text-white text-center bg-black/70 py-0.5">
+                      {new Date(p.date).toLocaleDateString('fr-FR', { day: '2-digit', month: 'short' })}
+                    </div>
+                    {isA && <div className="absolute top-0 left-0 bg-fuchsia-500 text-white text-[9px] font-bold px-1 rounded-br">AVANT</div>}
+                    {isB && <div className="absolute top-0 left-0 bg-violet-500 text-white text-[9px] font-bold px-1 rounded-br">APRÈS</div>}
+                    {!compareMode && (
+                      <button onClick={() => del(p.id)} className="absolute top-0.5 right-0.5 h-5 w-5 rounded-full bg-red-500/80 text-white text-[10px] opacity-0 group-hover:opacity-100 transition">✕</button>
+                    )}
+                  </div>
+                )
+              })}
+            </div>
+            {compareMode && selA && selB && (
+              <div className="mt-3 grid grid-cols-2 gap-2">
+                <div className="text-center">
+                  <div className="text-[10px] text-fuchsia-300 font-bold uppercase tracking-widest mb-1">Avant · {new Date(selA.date).toLocaleDateString('fr-FR', { day: '2-digit', month: 'short', year: '2-digit' })}</div>
+                  <img src={selA.image_data} alt="avant" className="w-full aspect-[3/4] object-cover rounded-lg border-2 border-fuchsia-500/50" />
+                </div>
+                <div className="text-center">
+                  <div className="text-[10px] text-violet-300 font-bold uppercase tracking-widest mb-1">Après · {new Date(selB.date).toLocaleDateString('fr-FR', { day: '2-digit', month: 'short', year: '2-digit' })}</div>
+                  <img src={selB.image_data} alt="après" className="w-full aspect-[3/4] object-cover rounded-lg border-2 border-violet-500/50" />
+                </div>
+                <div className="col-span-2 p-2 rounded-lg bg-violet-500/10 border border-violet-500/30 text-[11px] text-violet-200 text-center">
+                  ⏱ {Math.round((new Date(selB.date) - new Date(selA.date)) / 86400000)} jours d&apos;évolution
+                </div>
+              </div>
+            )}
           </div>
         )}
 
@@ -2358,7 +2521,22 @@ function Dashboard({ user, onSignOut }) {
   const [lastProgram, setLastProgram] = useState(null)
   const [recentWorkouts, setRecentWorkouts] = useState([])
   const [autoBadge, setAutoBadge] = useState(false)
+  const [selectedDate, setSelectedDate] = useState(new Date().toISOString().slice(0, 10))
   const lastAutoIdRef = useRef(null)
+
+  // Derived: program to show = workout matching selectedDate (fallback to any last program)
+  const selectedProgram = useMemo(() => {
+    const match = (recentWorkouts || []).find(w => w.date === selectedDate && w.type_seance !== 'week_plan')
+    return match?.program_json || (selectedDate === new Date().toISOString().slice(0, 10) ? lastProgram : null)
+  }, [recentWorkouts, selectedDate, lastProgram])
+
+  // Is the selected date a club day ?
+  const isClubDay = useMemo(() => {
+    if (!profile?.club_schedule?.length) return false
+    const d = new Date(selectedDate)
+    const DAY_KEYS = ['dim', 'lun', 'mar', 'mer', 'jeu', 'ven', 'sam']
+    return profile.club_schedule.some(s => s.day === DAY_KEYS[d.getDay()])
+  }, [profile, selectedDate])
 
   async function refreshAll() {
     const today = new Date().toISOString().slice(0, 10)
@@ -2450,10 +2628,17 @@ function Dashboard({ user, onSignOut }) {
               </div>
             )}
             <ObjectiveBanner profile={profile} />
-            <WeekStrip userId={user.id} sport={sport} />
+            <WeekStrip userId={user.id} sport={sport} profile={profile} selectedDate={selectedDate} onDayClick={(d) => setSelectedDate(d.date)} />
+            {selectedDate !== new Date().toISOString().slice(0, 10) && (
+              <div className="flex items-center gap-2 p-2 rounded-lg bg-fuchsia-500/10 border border-fuchsia-500/30 text-xs text-fuchsia-200">
+                <CalendarDays className="h-3.5 w-3.5 shrink-0" />
+                <span className="flex-1">Séance du <b>{new Date(selectedDate).toLocaleDateString('fr-FR', { weekday: 'long', day: '2-digit', month: 'long' })}</b>{isClubDay && ' · 🥋 jour club'}</span>
+                <button onClick={() => setSelectedDate(new Date().toISOString().slice(0, 10))} className="text-fuchsia-300 hover:text-white">✕</button>
+              </div>
+            )}
             <FormScoreCard latestHealth={latestHealth} />
             <HealthCard userId={user.id} latest={latestHealth} onSaved={setLatestHealth} />
-            <ProgramCard userId={user.id} sport={sport} latestHealth={latestHealth} profile={profile} oneRm={oneRmMap} recentWorkouts={recentWorkouts} initialProgram={lastProgram} onNewProgram={setLastProgram} />
+            <ProgramCard userId={user.id} sport={sport} latestHealth={latestHealth} profile={profile} oneRm={oneRmMap} recentWorkouts={recentWorkouts} initialProgram={selectedProgram} selectedDate={selectedDate} isClubDay={isClubDay} onNewProgram={setLastProgram} />
             <OneRmCard userId={user.id} onChange={setOneRmMap} />
             <NutritionCard userId={user.id} />
           </TabsContent>
