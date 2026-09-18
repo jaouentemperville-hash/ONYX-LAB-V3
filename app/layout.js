@@ -1,5 +1,6 @@
 import './globals.css'
 import { Toaster } from '@/components/ui/sonner'
+import { Providers } from './providers'
 
 export const metadata = {
   title: 'ONYX 🧬 — Coach IA Athlétisation, MMA & No-Gi',
@@ -24,8 +25,10 @@ export default function RootLayout({ children }) {
   return (
     <html lang="fr" className="dark">
       <body className="min-h-screen bg-neutral-950 text-neutral-50 antialiased">
-        {children}
-        <Toaster theme="dark" position="top-center" richColors />
+        <Providers>
+          {children}
+          <Toaster theme="dark" position="top-center" richColors />
+        </Providers>
       </body>
     </html>
   )
