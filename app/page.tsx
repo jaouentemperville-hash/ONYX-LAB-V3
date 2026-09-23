@@ -165,8 +165,10 @@ export default function OnyxDashboard() {
   // --- Mutations ---
   const generateProgramM = useMutation({
     mutationFn: async () => {
-      const one_rm_map = {}
-      for (const r of oneRmQ.data || []) one_rm_map[r.exercise] = r.value_kg
+     const one_rm_map: Record<string, number> = {}
+for (const r of (oneRmQ.data as any[]) || []) {
+  one_rm_map[r.exercise] = r.value_kg
+}
       const res = await fetch('/api/coach/program', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
