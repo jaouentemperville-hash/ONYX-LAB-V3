@@ -80,7 +80,7 @@ export default function OnyxDashboard() {
   const weekKey = getWeekKey()
 
   // --- Data queries ---
-  const profileQ = useQuery({
+  const profileQ = useQuery<any>({
     queryKey: ['profile', userId],
     enabled: !!userId,
     queryFn: async () => {
@@ -90,7 +90,7 @@ export default function OnyxDashboard() {
     },
   })
 
-  const healthTodayQ = useQuery({
+  const healthTodayQ = useQuery<any>({
     queryKey: ['health_today', userId, today],
     enabled: !!userId,
     queryFn: async () => {
@@ -101,7 +101,7 @@ export default function OnyxDashboard() {
     },
   })
 
-  const todayWorkoutQ = useQuery({
+  const todayWorkoutQ = useQuery<any>({
     queryKey: ['workout_today', userId, today],
     enabled: !!userId,
     queryFn: async () => {
@@ -113,7 +113,7 @@ export default function OnyxDashboard() {
     },
   })
 
-  const recentWorkoutsQ = useQuery({
+  const recentWorkoutsQ = useQuery<any>({
     queryKey: ['workouts_recent', userId],
     enabled: !!userId,
     queryFn: async () => {
@@ -125,7 +125,7 @@ export default function OnyxDashboard() {
     },
   })
 
-  const oneRmQ = useQuery({
+  const oneRmQ = useQuery<any>({
     queryKey: ['one_rm', userId],
     enabled: !!userId,
     queryFn: async () => {
@@ -141,7 +141,7 @@ export default function OnyxDashboard() {
     },
   })
 
-  const weekFocusQ = useQuery({
+  const weekFocusQ = useQuery<any>({
     queryKey: ['week_focus', userId, weekKey],
     enabled: !!userId,
     queryFn: async () => {
@@ -165,10 +165,8 @@ export default function OnyxDashboard() {
   // --- Mutations ---
   const generateProgramM = useMutation({
     mutationFn: async () => {
-     const one_rm_map: Record<string, number> = {}
-for (const r of (oneRmQ.data as any[]) || []) {
-  one_rm_map[r.exercise] = r.value_kg
-}
+      const one_rm_map = {}
+      for (const r of oneRmQ.data || []) one_rm_map[r.exercise] = r.value_kg
       const res = await fetch('/api/coach/program', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -274,8 +272,8 @@ for (const r of (oneRmQ.data as any[]) || []) {
     )
   }
 
-  const oneRepMaxes = oneRmQ.data || []
-  const oneRmTotal = oneRepMaxes.reduce((s, r) => s + (Number(r.value_kg) || 0), 0)
+  const oneRepMaxes: any[] = oneRmQ.data || []
+  const oneRmTotal: number = oneRepMaxes.reduce((s: number, r: any) => s + (Number(r.value_kg) || 0), 0)
   const program = todayWorkoutQ.data?.program_json || null
   const recovery = healthTodayQ.data?.recovery_score
 
