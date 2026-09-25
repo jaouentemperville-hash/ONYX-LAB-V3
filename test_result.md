@@ -231,3 +231,93 @@ agent_communication_v4:
     message: "Bug fix: added meal photo feature (POST /api/nutrition/photo). Also enhanced /api/coach/program to include rest day logic, stretches (etirements), duration, and a notification field. Rebrand: COACH IA -> ONYX 🧬, red -> violet. Frontend page.js updated with 📸 Photo button in NutritionCard. Please test the 2 backend endpoints: /api/nutrition/photo (with a small base64 image) and /api/coach/program (with recent_sessions array to verify it can suggest repos)."
   - agent: "testing"
     message: "✅ ALL BACKEND TESTS PASSED (8/8 - 100%). Priority 1 (meal photo endpoint): WORKING - tested with generated 32x32 JPEG, all response fields validated, error handling correct. Priority 2 (program rest logic): WORKING EXCELLENTLY - AI correctly suggests repos_actif for poor recovery (HRV=35, fatigue=9) and seance/forte for good recovery (HRV=75, fatigue=2). Priority 3 (regression tests): ALL PASSING - health, feedback, link analysis, nutrition estimate all working. Response times 5-39s (expected for Gemini API calls). Note: Gemini API experienced intermittent 'high demand' errors during testing (temporary Google issue, resolved by retrying). Backend implementation is solid and production-ready."
+
+
+# ============ v9 — Refonte design violet lumineux + pages dédiées ============
+metadata_v9:
+  migration_required: true
+  migration_file: "/app/ONYX_MIGRATION.sql"
+  reason: "BDD Supabase désynchronisée: tables one_rm & progress_photos absentes, club_schedule mauvais type (text[] au lieu de jsonb), colonnes profil manquantes (age, sexe, niveau_activite), trigger handle_new_user cassé (Database error creating new user à l'inscription)."
+  env_restored: true
+  gemini_model: "gemini-3.6-flash"
+
+frontend_v9:
+  - task: "Refonte thème violet lumineux (Zepp-like) + navigation par pages"
+    implemented: true
+    working: "NA"
+    file: "/app/app/globals.css, /app/app/layout.js, /app/components/onyx/ui.tsx"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+      - working: "NA"
+        agent: "main"
+        comment: "Nouveau design system: fond dégradé violet clair, GlassCard blanches translucides, Ring gauges violet, BottomNav (Accueil/Programme/Force/Nutrition/Profil). TS compile 0 erreur, lint clean, toutes routes 200."
+  - task: "Dashboard accueil avec cartes cliquables -> pages dédiées + modale profil enrichie"
+    implemented: true
+    working: "NA"
+    file: "/app/app/page.tsx"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+      - working: "NA"
+        agent: "main"
+        comment: "page.tsx réécrit. Cartes -> /programme/jour, /programme/semaine, /force, /planning, /nutrition. Modale profil édite dynamiquement nom, sport, niveau, age, sexe, poids, taille, objectif poids, niveau_activite, objectifs + IMC/TDEE live. RPE/1RM/club connectés Supabase."
+  - task: "Page programme semaine éditable (/programme/semaine)"
+    implemented: true
+    working: "NA"
+    file: "/app/app/programme/semaine/page.tsx"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+      - working: "NA"
+        agent: "main"
+        comment: "Édition de chaque jour (type/intensité/focus/durée/note) + objectif semaine, save vers week_focus (jsonb string), regénération IA via /api/coach/week."
+  - task: "Page séance du jour (/programme/jour) - cocher exos + RPE"
+    implemented: true
+    working: "NA"
+    file: "/app/app/programme/jour/page.tsx"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+      - working: "NA"
+        agent: "main"
+        comment: "Détail séance, toggle exercices terminés (persist program_json), RPE slider -> update workouts.status=fait, regénération via /api/coach/program."
+  - task: "Page Force 1RM historique (/force)"
+    implemented: true
+    working: "NA"
+    file: "/app/app/force/page.tsx"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+      - working: "NA"
+        agent: "main"
+        comment: "CRUD one_rm (insert/delete), regroupement par exercice, courbe SVG de progression, delta. DEPEND de la table one_rm (migration requise)."
+  - task: "Page planning club (/planning) + page profil (/profil) + nutrition (/nutrition)"
+    implemented: true
+    working: "NA"
+    file: "/app/app/planning/page.tsx, /app/app/profil/page.tsx, /app/app/nutrition/page.tsx"
+    stuck_count: 0
+    priority: "medium"
+    needs_retesting: false
+    status_history:
+      - working: "NA"
+        agent: "main"
+        comment: "Planning: CRUD club_schedule (jsonb). Profil: éditeur complet plein écran. Nutrition: journal meals + estimation macros texte/photo + analyse hebdo IA."
+
+test_plan_v9:
+  current_focus:
+    - "Auth + dashboard rendering après migration SQL"
+    - "CRUD one_rm (/force)"
+    - "Edition programme semaine"
+  stuck_tasks: []
+  test_all: false
+  test_priority: "high_first"
+
+agent_communication_v9:
+  - agent: "main"
+    message: "Refonte complète livrée. .env restauré (Supabase + Gemini). REQUIS: l'utilisateur doit exécuter /app/ONYX_MIGRATION.sql dans Supabase SQL Editor (crée one_rm/progress_photos, corrige club_schedule jsonb, ajoute age/sexe/niveau_activite, répare le trigger d'inscription). Backend endpoints inchangés (déjà validés v4). Frontend pas encore testé end-to-end (attente migration + permission user pour test frontend)."

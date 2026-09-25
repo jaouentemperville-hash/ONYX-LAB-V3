@@ -4,11 +4,11 @@ import { Providers } from './providers'
 
 export const metadata = {
   title: 'ONYX 🧬 — Coach IA Athlétisation, MMA & No-Gi',
-  description: 'ONYX · Coaching sportif intelligent piloté par IA — programmes du jour, RPA vocal, analyse vidéo, nutrition photo',
+  description: 'ONYX · Coaching sportif intelligent piloté par IA — programmes du jour, plan hebdo, force, nutrition',
   manifest: '/manifest.webmanifest',
   appleWebApp: {
     capable: true,
-    statusBarStyle: 'black-translucent',
+    statusBarStyle: 'default',
     title: 'ONYX',
   },
 }
@@ -23,11 +23,11 @@ export const viewport = {
 
 export default function RootLayout({ children }) {
   return (
-    <html lang="fr" className="dark">
-      <body className="min-h-screen bg-neutral-950 text-neutral-50 antialiased">
+    <html lang="fr">
+      <body className="onyx-body min-h-screen antialiased">
         <Providers>
           {children}
-          <Toaster theme="dark" position="top-center" richColors />
+          <Toaster theme="light" position="top-center" richColors />
         </Providers>
       </body>
     </html>
